@@ -1,8 +1,8 @@
 use actix_web::{HttpResponse, Responder, Scope, web, get};
 use crate::DOMAIN;
 
-pub fn frontend() -> Scope {
-    web::scope("/front")
+pub fn dashboard() -> Scope {
+    web::scope("/dashboard")
         .service(upload)
 }
 
