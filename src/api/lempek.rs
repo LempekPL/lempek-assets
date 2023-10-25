@@ -1,7 +1,9 @@
 use actix_multipart::form::{MultipartForm};
 use actix_multipart::form::tempfile::TempFile;
 use actix_multipart::form::text::Text;
-use actix_web::{web, Responder, Scope, post, HttpResponse, Either};
+use actix_web::{web, Responder, Scope, post, HttpResponse, Either, get};
+use crate::api::{get_file_names_in_public, ReturnVecString};
+use crate::DOMAIN;
 use crate::utils::get_filepath;
 
 const CODE: &'static str = "zaq1@WSXz";
@@ -39,6 +41,7 @@ struct UploadForm {
 pub fn api_endpoints_lempek() -> Scope {
     web::scope("/lempek")
         .service(upload)
+        .service(files)
 }
 
 #[post("/upload")]
@@ -63,6 +66,11 @@ async fn upload(
     Either::Right(SuccessfulUpload {
         path: filepath.replace("./files", "")
     })
+}
+
+#[get("/files")]
+pub async fn files() -> ReturnVecString {
+    ReturnVecString(get_file_names_in_public())
 }
 
 // #[post("/upload_old")]

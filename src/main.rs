@@ -1,5 +1,4 @@
 mod api;
-mod dashboard;
 mod utils;
 
 use actix_multipart::form::tempfile::TempFileConfig;
@@ -13,7 +12,6 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(TempFileConfig::default().directory("temp"))
             .service(api::api())
-            .service(dashboard::dashboard())
             .service(web::scope("/").service(web::redirect("/", "/dashboard")))
     })
         .bind(("127.0.0.1", 5422))?
