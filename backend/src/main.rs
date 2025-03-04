@@ -21,5 +21,5 @@ async fn rocket() -> _ {
     }
     rocket::build()
         .manage(connect_db().await)
-        .mount("/", routes![auth::login, files::upload_file])
+        .mount("/", routes![auth::login, auth::register, files::upload_file])
 }
