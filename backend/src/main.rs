@@ -5,21 +5,43 @@ mod db;
 mod files;
 mod models;
 
-use std::fs;
-use std::path::PathBuf;
 use db::connect_db;
 use dotenvy::dotenv;
 use rocket::Config;
+use std::{env, fs};
+use std::path::PathBuf;
+use std::sync::OnceLock;
+use uuid::Uuid;
+
+static ADMIN_UUID: OnceLock<Uuid> = OnceLock::new();
+static FILES_DIR: OnceLock<String> = OnceLock::new();
 
 #[launch]
 async fn rocket() -> _ {
     dotenv().ok();
     let config = Config::figment();
-    let temp_dir: String = config.extract_inner("temp_dir").unwrap_or_else(|_| "/tmp".to_string());
+    let temp_dir: String = config
+        .extract_inner("temp_dir")
+        .unwrap_or_else(|_| "/tmp".to_string());
     if !PathBuf::from(&temp_dir).exists() {
         fs::create_dir_all(&temp_dir).expect("create temp dir");
     }
-    rocket::build()
-        .manage(connect_db().await)
-        .mount("/", routes![auth::login, auth::register, files::upload_file])
+    ADMIN_UUID.set(Uuid::parse_str(&*env::var("ADMIN_USER_UUID").unwrap()).unwrap()).unwrap();
+    FILES_DIR.set(env::var("FILES_DIR").unwrap()).unwrap();
+
+    if !PathBuf::from(&FILES_DIR.get().unwrap()).exists() {
+        fs::create_dir_all(&FILES_DIR.get().unwrap()).unwrap();
+    }
+
+    rocket::build().manage(connect_db().await).mount(
+        "/",
+        routes![
+            auth::login,
+            auth::register,
+            files::upload_file,
+            files::create_folder,
+            files::get_folders,
+            files::delete_folder
+        ],
+    )
 }

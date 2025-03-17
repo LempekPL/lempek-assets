@@ -1,14 +1,23 @@
 use crate::models::User;
 use bcrypt::{DEFAULT_COST, hash, verify};
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rocket::request::{FromRequest, Outcome};
-use rocket::{Request, State, http::Status, post, response::status, serde::json::Json};
+use rocket::{Request, State, http::Status, post, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use sqlx::types::chrono;
-use sqlx::types::chrono::Utc;
 use std::time::Duration;
-use uuid::{Timestamp, Uuid};
+use chrono::Utc;
+use uuid::Uuid;
+
+fn encode_auth(user: impl Into<AuthUser>) -> Option<String> {
+    let jwt_secret = std::env::var("JWT_SECRET").ok()?;
+    encode::<AuthUser>(
+        &Header::default(),
+        &user.into(),
+        &EncodingKey::from_secret(jwt_secret.as_bytes()),
+    )
+    .ok()
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct TokenResponse {
@@ -50,15 +59,8 @@ pub async fn login(
         .await
         .map_err(|_| Status::Unauthorized)?;
 
-    let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| Status::InternalServerError)?;
     if verify(&data.password, &user.password_hash).map_err(|_| Status::InternalServerError)? {
-        let token = encode::<AuthUser>(
-            &Header::default(),
-            &user.into(),
-            &EncodingKey::from_secret(jwt_secret.as_bytes()),
-        )
-        .map_err(|_| Status::InternalServerError)?;
-
+        let token = encode_auth(user).ok_or(Status::InternalServerError)?;
         Ok(Json(TokenResponse { token }))
     } else {
         Err(Status::Unauthorized)
@@ -88,30 +90,20 @@ pub async fn register(
     let hashed_password =
         hash(&data.password, DEFAULT_COST).map_err(|_| Status::InternalServerError)?;
 
-    let insert_result = sqlx::query!(
+    sqlx::query!(
         "INSERT INTO users (login, password_hash) VALUES ($1, $2)",
         data.login,
         hashed_password
     )
     .execute(pool.inner())
-    .await;
+    .await
+    .map_err(|_| Status::InternalServerError)?;
 
-    if insert_result.is_err() {
-        return Err(Status::InternalServerError);
-    }
-    let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| Status::InternalServerError)?;
     let user = sqlx::query_as!(User, "SELECT * FROM users WHERE login = $1", data.login)
         .fetch_one(pool.inner())
         .await
         .map_err(|_| Status::Unauthorized)?;
-
-    let token = encode::<AuthUser>(
-        &Header::default(),
-        &user.into(),
-        &EncodingKey::from_secret(jwt_secret.as_bytes()),
-    )
-    .map_err(|_| Status::InternalServerError)?;
-
+    let token = encode_auth(user).ok_or(Status::InternalServerError)?;
     Ok(Json(TokenResponse { token }))
 }
 
