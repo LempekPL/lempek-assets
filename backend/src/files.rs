@@ -1,6 +1,6 @@
 use crate::auth::AuthUser;
 use crate::models::User;
-use crate::{ADMIN_UUID, FILES_DIR};
+use crate::{ADMIN_UUID, FILES_DIR, PUBLIC_DIR_UUID};
 use chrono::DateTime;
 use chrono::Utc;
 use rocket::form::Form;
@@ -17,7 +17,6 @@ pub struct UploadRequest<'a> {
     pub folder: Option<String>, // UUID
     pub name: Option<String>,
     pub overwrite: Option<bool>,
-    pub public_file: Option<bool>,
 }
 
 #[post("/upload", data = "<data>", format = "multipart/form-data")]
@@ -34,68 +33,34 @@ pub async fn upload_file<'a>(
         return Err((Status::Unauthorized, Some("No upload permission")));
     }
     let mut upload_dir = FILES_DIR.get().unwrap().to_string();
-    let folder_uuid;
-    if ADMIN_UUID.get().unwrap() == &user.id && data.public_file.unwrap_or(false) {
-        if data.folder.is_none() {
-            upload_dir += "public";
-        }
-        // let folder: Uuid = sqlx::query_scalar!(
-        //     "WITH ins AS (
-        //             INSERT INTO folders (name, parent_id, user_id)
-        //             SELECT 'public', NULL, $1
-        //             WHERE NOT EXISTS (
-        //                 SELECT 1
-        //                 FROM folders
-        //                 WHERE name = 'public'
-        //                   AND parent_id IS NULL
-        //                   AND user_id = $1
-        //             )
-        //             RETURNING id
-        //         )
-        //         SELECT id FROM ins
-        //         UNION ALL
-        //         SELECT id FROM folders
-        //         WHERE name = 'public'
-        //           AND parent_id IS NULL
-        //           AND user_id = $1
-        //           LIMIT 1;",
-        //     user.id
-        // )
-        // .fetch_one(pool.inner())
-        // .await
-        // .map_err(|_| (Status::InternalServerError, None))?
-        // .ok_or((Status::InternalServerError, None))?;
 
-        // folder_uuid = Uuid::parse_str(&folder_id).map_err(|_| (Status::InternalServerError, None))?;
-        // String::from("../files/public")
-    } else {
-        upload_dir += &user.login;
-        //     if let Some(ref folder_id) = data.folder {
-        //         folder_uuid =
-        //             Uuid::parse_str(&folder_id).map_err(|_| (Status::InternalServerError, None))?;
-        //         let str_path = sqlx::query_as!(
-        //     FolderPath,
-        //     "SELECT get_folder_path($1) as path;",
-        //     folder_uuid
-        // )
-        //             .fetch_optional(pool.inner())
-        //             .await
-        //             .map_err(|_| (Status::InternalServerError, None))?
-        //             .ok_or((Status::BadRequest, None))?;
-        //         path += str_path.path.ok_or((Status::BadRequest, None))?.as_str();
-        //     };
-        // path
+    let folder_uuid = match data.folder.as_ref() {
+        None => None,
+        Some(v) => Some(Uuid::parse_str(v).map_err(|_| (Status::BadRequest, None))?),
     };
-    if let Some(ref folder_id) = data.folder {
-        folder_uuid =
-            Uuid::parse_str(&folder_id).map_err(|_| (Status::InternalServerError, None))?;
+    let folder_root_uuid = if let Some(folder_uuid) = folder_uuid {
+        sqlx::query_scalar!("SELECT get_folder_root($1)", folder_uuid)
+            .fetch_one(pool.inner())
+            .await
+            .map_err(|_| (Status::InternalServerError, None))?
+    } else {
+        None
+    };
+
+    let is_public = ADMIN_UUID.get().unwrap() == &user.id
+        && folder_root_uuid.is_some_and(|v| &v == PUBLIC_DIR_UUID.get().unwrap());
+    if !is_public {
+        upload_dir += &user.login;
+        upload_dir += "/";
+    };
+    if let Some(folder_uuid) = folder_uuid {
         let str_path = sqlx::query_scalar!("SELECT get_folder_path($1) as path;", folder_uuid)
             .fetch_optional(pool.inner())
             .await
             .map_err(|_| (Status::InternalServerError, None))?
             .ok_or((Status::BadRequest, None))?;
-        upload_dir += str_path.ok_or((Status::BadRequest, None))?.as_str();
-    };
+        upload_dir += (str_path.ok_or((Status::BadRequest, None))? + "/").as_str();
+    }
 
     if !data.overwrite.unwrap_or(false) {
         // let file = sqlx::query_as!(
@@ -107,7 +72,6 @@ pub async fn upload_file<'a>(
     if !PathBuf::from(&upload_dir).exists() {
         fs::create_dir_all(&upload_dir).map_err(|_| (Status::InternalServerError, None))?;
     }
-
     let invalid_chars = [
         '<', '>', ':', '"', '/', '\\', '|', '?', '*', ',', ';', '=', '(', ')', '&', '#', '\'',
     ];
@@ -166,46 +130,91 @@ pub async fn upload_file<'a>(
             ),
         ));
     }
+    let file_dir = upload_dir + &file_name;
+    if let Err(e) = data.file.persist_to(&file_dir).await {
+        eprintln!("Failed to save file: {}", e);
+        dbg!(&file_dir);
+        return Err((Status::InternalServerError, Some("Failed to save file")));
+    }
 
-    dbg!(&file_name);
-
-    // let base_name = if let Some(ref name) = data.name {
-    //     name.clone()
-    // } else if let Some(raw) = data.file.raw_name() {
-    //     raw.as_str().to_string()
-    // } else {
-    //     // Fallback: generate a unique name based on UUID and content-type extension.
-    //     let ext = data
-    //         .file
-    //         .content_type()
-    //         .and_then(|ct| ct.extension())
-    //         .unwrap_or_default();
-    //     format!("file_{}.{}", Uuid::new_v4(), ext)
-    // };
-    // let mut destination_path = format!("{}/{}", upload_dir, base_name);
-    // if let Err(e) = data.file.persist_to(&destination_path).await {
-    //     eprintln!("Failed to save file to {}: {}", destination_path, e);
-    //     return Err(Status::InternalServerError);
-    // }
-    //
-
-    // let size: i64 = match fs::metadata(&upload_dir) {
-    //     Ok(metadata) => metadata.len() as i64,
-    //     Err(_) => 0,
-    // };
-    // let insert_result = sqlx::query!(
-    //     "INSERT INTO files (user_id, folder_id, filename, filepath, size) VALUES ($1, $2, $3, $4, $5)",
-    //     user.id,
-    //     folder_uuid,
-    //     file_name,
-    //     upload_dir.trim_start_matches("../files"),
-    //     size
-    // )
-    //     .execute(pool.inner())
-    //     .await
-    //     .map_err(|_| Status::InternalServerError)?;
-    Ok("yej".to_string())
+    let size: i64 = match fs::metadata(&file_dir) {
+        Ok(metadata) => metadata.len() as i64,
+        Err(_) => 0,
+    };
+    let insert_result = sqlx::query!(
+        "INSERT INTO files (user_id, folder_id, filename, filepath, size) VALUES ($1, $2, $3, $4, $5)",
+        user.id,
+        folder_uuid,
+        file_name,
+        file_dir.trim_start_matches("../files"),
+        size
+    )
+        .execute(pool.inner())
+        .await
+        .map_err(|_| (Status::InternalServerError, None))?;
+    Ok(format!(
+        "Created file: {}",
+        file_dir.trim_start_matches("../files")
+    ))
 }
+
+#[derive(Debug, Deserialize, Serialize, FromRow)]
+pub struct ShowFile {
+    pub id: Uuid,
+    pub folder_id: Option<Uuid>,
+    pub filename: String,
+    pub filepath: String,
+    pub size: Option<i64>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[get("/files")]
+pub async fn get_files<'a>(
+    auth_user: AuthUser,
+    pool: &'a State<PgPool>,
+) -> Result<Json<Vec<ShowFile>>, (Status, Option<&'a str>)> {
+    let a = sqlx::query_as!(
+        ShowFile,
+        "SELECT id, folder_id, filename, filepath, size, created_at FROM files WHERE user_id = $1",
+        auth_user.user_id
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|_| (Status::InternalServerError, None))?;
+    Ok(Json(a))
+}
+
+// #[derive(Debug, FromForm)]
+// pub struct UploadRequest<'a> {
+//     pub file: TempFile<'a>,
+//     pub folder: Option<String>, // UUID
+//     pub name: Option<String>,
+//     pub overwrite: Option<bool>,
+// }
+//
+// #[post("/files")]
+// pub async fn upload_file<'a>(
+//     auth_user: AuthUser,
+//     mut data: Form<UploadRequest<'a>>,
+//     pool: &'a State<PgPool>,
+// ) -> Result<String, (Status, Option<&'a str>)> {
+
+// #[derive(Debug, FromForm)]
+// pub struct UploadRequest<'a> {
+//     pub file: TempFile<'a>,
+//     pub folder: Option<String>, // UUID
+//     pub name: Option<String>,
+//     pub overwrite: Option<bool>,
+// }
+//
+// #[post("/upload", data = "<data>", format = "multipart/form-data")]
+// pub async fn upload_file<'a>(
+//     auth_user: AuthUser,
+//     mut data: Form<UploadRequest<'a>>,
+//     pool: &'a State<PgPool>,
+// ) -> Result<String, (Status, Option<&'a str>)> {
+//
+// }
 
 #[derive(Debug, Deserialize, Serialize, FromRow)]
 pub struct ShowFolder {
@@ -372,9 +381,9 @@ pub async fn delete_folder<'a>(
         uuid,
         auth_user.user_id
     )
-    .fetch_optional(pool.inner())
-    .await
-    .map_err(|_| (Status::InternalServerError, None))?;
+        .fetch_optional(pool.inner())
+        .await
+        .map_err(|_| (Status::InternalServerError, None))?;
 
     if f_path.is_none() {
         return Err((Status::BadRequest, Some("Folder does not exist")));

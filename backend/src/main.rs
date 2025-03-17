@@ -8,13 +8,14 @@ mod models;
 use db::connect_db;
 use dotenvy::dotenv;
 use rocket::Config;
-use std::{env, fs};
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::{env, fs};
 use uuid::Uuid;
 
 static ADMIN_UUID: OnceLock<Uuid> = OnceLock::new();
 static FILES_DIR: OnceLock<String> = OnceLock::new();
+static PUBLIC_DIR_UUID: OnceLock<Uuid> = OnceLock::new();
 
 #[launch]
 async fn rocket() -> _ {
@@ -26,7 +27,9 @@ async fn rocket() -> _ {
     if !PathBuf::from(&temp_dir).exists() {
         fs::create_dir_all(&temp_dir).expect("create temp dir");
     }
-    ADMIN_UUID.set(Uuid::parse_str(&*env::var("ADMIN_USER_UUID").unwrap()).unwrap()).unwrap();
+    ADMIN_UUID
+        .set(Uuid::parse_str(&*env::var("ADMIN_USER_UUID").unwrap()).unwrap())
+        .unwrap();
     FILES_DIR.set(env::var("FILES_DIR").unwrap()).unwrap();
 
     if !PathBuf::from(&FILES_DIR.get().unwrap()).exists() {
@@ -39,6 +42,7 @@ async fn rocket() -> _ {
             auth::login,
             auth::register,
             files::upload_file,
+            files::get_files,
             files::create_folder,
             files::get_folders,
             files::delete_folder

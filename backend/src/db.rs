@@ -1,4 +1,4 @@
-use crate::ADMIN_UUID;
+use crate::{ADMIN_UUID, PUBLIC_DIR_UUID};
 use sqlx::PgPool;
 use std::env;
 
@@ -26,6 +26,15 @@ pub async fn connect_db() -> PgPool {
             .await
             .unwrap();
         }
+
+        let public_dir = sqlx::query_scalar!(
+            "SELECT id FROM folders WHERE user_id = $1 AND name = 'public'",
+            uuid
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        PUBLIC_DIR_UUID.set(public_dir).unwrap();
     }
 
     pool

@@ -19,11 +19,11 @@ CREATE TABLE files
 (
     id          UUID PRIMARY KEY     DEFAULT uuidv7(),
     user_id     UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    folder_id   UUID REFERENCES folders (id) ON DELETE CASCADE,
+    folder_id   UUID                 DEFAULT NULL REFERENCES folders (id) ON DELETE CASCADE,
     filename    TEXT        NOT NULL,
     filepath    TEXT        NOT NULL UNIQUE,
     size        BIGINT,
-    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE OR REPLACE FUNCTION uuidv7(
@@ -69,5 +69,29 @@ WITH
 SELECT path
 FROM folder_hierarchy
 ORDER BY LENGTH(path) DESC
+LIMIT 1;
+$BODY$;
+
+CREATE OR REPLACE FUNCTION public.get_folder_root(
+    folder_id uuid)
+    RETURNS uuid
+    LANGUAGE 'sql'
+    COST 100
+    VOLATILE PARALLEL UNSAFE
+AS $BODY$
+WITH RECURSIVE folder_tree AS (
+    SELECT id, parent_id
+    FROM folders
+    WHERE id = folder_id
+
+    UNION ALL
+
+    SELECT f.id, f.parent_id
+    FROM folders f
+             JOIN folder_tree ft ON f.id = ft.parent_id
+)
+SELECT id
+FROM folder_tree
+WHERE parent_id IS NULL
 LIMIT 1;
 $BODY$;
