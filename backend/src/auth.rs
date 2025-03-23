@@ -1,27 +1,58 @@
 use crate::models::User;
 use bcrypt::{DEFAULT_COST, hash, verify};
+use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use rocket::http::{Cookie, CookieJar, SameSite};
 use rocket::request::{FromRequest, Outcome};
 use rocket::{Request, State, http::Status, post, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use std::time::Duration;
-use chrono::Utc;
 use uuid::Uuid;
 
-fn encode_auth(user: impl Into<AuthUser>) -> Option<String> {
-    let jwt_secret = std::env::var("JWT_SECRET").ok()?;
-    encode::<AuthUser>(
+fn set_cookie(cookies: &CookieJar<'_>, user: impl Into<AuthUser>) -> Result<(), Status> {
+    let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| Status::InternalServerError)?;
+    let auth = &user.into();
+    let token = encode::<AuthUser>(
         &Header::default(),
-        &user.into(),
+        auth,
         &EncodingKey::from_secret(jwt_secret.as_bytes()),
     )
-    .ok()
+    .map_err(|_| Status::InternalServerError)?;
+
+    cookies.add_private(
+        Cookie::build(("jwt_token", token))
+            .http_only(true)
+            .secure(true)
+            .same_site(SameSite::Lax)
+            .expires(rocket::time::OffsetDateTime::from_unix_timestamp(auth.exp as i64).unwrap()),
+    );
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct TokenResponse {
-    pub token: String,
+struct Success {
+    success: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AuthResponse {
+    pub success: bool,
+    pub message: Option<String>,
+}
+
+impl AuthResponse {
+    fn success() -> Self {
+        Self {
+            success: true,
+            message: None,
+        }
+    }
+    fn no_success(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            message: Some(message.into()),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,7 +69,7 @@ impl Into<AuthUser> for User {
             user_id: self.id,
             login: self.login,
             allow_upload: self.allow_upload,
-            exp: (Utc::now() + Duration::from_secs(60 * 60 * 24)).timestamp() as usize,
+            exp: (Utc::now() + Duration::hours(5)).timestamp() as usize,
         }
     }
 }
@@ -53,17 +84,24 @@ pub struct LoginData {
 pub async fn login(
     data: Json<LoginData>,
     pool: &State<PgPool>,
-) -> Result<Json<TokenResponse>, Status> {
-    let user = sqlx::query_as!(User, "SELECT * FROM users WHERE login = $1", data.login)
+    cookies: &CookieJar<'_>,
+) -> Result<Json<AuthResponse>, Status> {
+    let user = match sqlx::query_as!(User, "SELECT * FROM users WHERE login = $1", data.login)
         .fetch_one(pool.inner())
         .await
-        .map_err(|_| Status::Unauthorized)?;
+    {
+        Ok(user) => user,
+        Err(sqlx::Error::RowNotFound) => {
+            return Ok(Json(AuthResponse::no_success("Wrong login or password")));
+        }
+        Err(_) => return Err(Status::InternalServerError),
+    };
 
     if verify(&data.password, &user.password_hash).map_err(|_| Status::InternalServerError)? {
-        let token = encode_auth(user).ok_or(Status::InternalServerError)?;
-        Ok(Json(TokenResponse { token }))
+        set_cookie(cookies, user)?;
+        Ok(Json(AuthResponse::success()))
     } else {
-        Err(Status::Unauthorized)
+        Ok(Json(AuthResponse::no_success("Wrong login or password")))
     }
 }
 
@@ -77,7 +115,8 @@ pub struct RegisterData {
 pub async fn register(
     data: Json<RegisterData>,
     pool: &State<PgPool>,
-) -> Result<Json<TokenResponse>, Status> {
+    cookies: &CookieJar<'_>,
+) -> Result<Json<Success>, Status> {
     let existing_user = sqlx::query!("SELECT id FROM users WHERE login = $1", data.login)
         .fetch_optional(pool.inner())
         .await
@@ -103,8 +142,30 @@ pub async fn register(
         .fetch_one(pool.inner())
         .await
         .map_err(|_| Status::Unauthorized)?;
-    let token = encode_auth(user).ok_or(Status::InternalServerError)?;
-    Ok(Json(TokenResponse { token }))
+    set_cookie(cookies, user)?;
+    Ok(Json(Success { success: true }))
+}
+
+#[post("/logout")]
+pub async fn logout(_auth: AuthUser, cookies: &CookieJar<'_>) -> Result<Json<Success>, Status> {
+    cookies.remove_private(Cookie::from("jwt_token"));
+    Ok(Json(Success { success: true }))
+}
+
+#[derive(Serialize, Deserialize)]
+struct UserData {
+    pub user_id: Uuid,
+    pub login: String,
+    pub allow_upload: bool,
+}
+
+#[get("/user")]
+pub async fn get_user(auth: AuthUser) -> Result<Json<UserData>, Status> {
+    Ok(Json(UserData {
+        user_id: auth.user_id,
+        login: auth.login,
+        allow_upload: auth.allow_upload,
+    }))
 }
 
 #[rocket::async_trait]
@@ -112,25 +173,35 @@ impl<'r> FromRequest<'r> for AuthUser {
     type Error = ();
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let token = req
-            .headers()
-            .get_one("Authorization")
-            .map(|t| t.replace("Bearer ", ""));
+        let cookies = req.cookies();
+        let token = cookies
+            .get_private("jwt_token")
+            .map(|cookie| cookie.value().to_string())
+            .or_else(|| {
+                cookies
+                    .get("jwt_token")
+                    .map(|cookie| cookie.value().to_string())
+            });
+
+        let token = match token {
+            Some(t) => t,
+            None => return Outcome::Error((Status::Unauthorized, ())),
+        };
+
         let Ok(jwt_secret) = std::env::var("JWT_SECRET") else {
             return Outcome::Error((Status::InternalServerError, ()));
         };
-
-        if let Some(token) = token {
-            let key = DecodingKey::from_secret(jwt_secret.as_bytes());
-            let result = decode::<AuthUser>(&token, &key, &Validation::default());
-
-            if let Ok(decoded) = result {
-                if decoded.claims.exp > Utc::now().timestamp() as usize {
-                    return Outcome::Success(decoded.claims);
+        let key = DecodingKey::from_secret(jwt_secret.as_bytes());
+        match decode::<AuthUser>(&token, &key, &Validation::default()) {
+            Ok(token_data) => {
+                let now = Utc::now().timestamp() as usize;
+                if token_data.claims.exp > now {
+                    Outcome::Success(token_data.claims)
+                } else {
+                    Outcome::Error((Status::Unauthorized, ()))
                 }
             }
+            Err(_) => Outcome::Error((Status::Unauthorized, ())),
         }
-
-        Outcome::Error((Status::Unauthorized, ()))
     }
 }
