@@ -54,12 +54,12 @@ pub async fn upload_file<'a>(
         upload_dir += "/";
     };
     if let Some(folder_uuid) = folder_uuid {
-        let str_path = sqlx::query_scalar!("SELECT get_folder_path($1) as path;", folder_uuid)
+        let str_path = sqlx::query_scalar!("SELECT path FROM folders WHERE id = $1;", folder_uuid)
             .fetch_optional(pool.inner())
             .await
             .map_err(|_| (Status::InternalServerError, None))?
             .ok_or((Status::BadRequest, None))?;
-        upload_dir += (str_path.ok_or((Status::BadRequest, None))? + "/").as_str();
+        upload_dir += (str_path + "/").as_str();
     }
 
     if !data.overwrite.unwrap_or(false) {
@@ -142,16 +142,16 @@ pub async fn upload_file<'a>(
         Err(_) => 0,
     };
     let insert_result = sqlx::query!(
-        "INSERT INTO files (user_id, folder_id, filename, filepath, size) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO files (user_id, folder_id, name, path, size) VALUES ($1, $2, $3, $4, $5)",
         user.id,
         folder_uuid,
         file_name,
         file_dir.trim_start_matches("../files"),
         size
     )
-        .execute(pool.inner())
-        .await
-        .map_err(|_| (Status::InternalServerError, None))?;
+    .execute(pool.inner())
+    .await
+    .map_err(|_| (Status::InternalServerError, None))?;
     Ok(format!(
         "Created file: {}",
         file_dir.trim_start_matches("../files")
@@ -162,8 +162,8 @@ pub async fn upload_file<'a>(
 pub struct ShowFile {
     pub id: Uuid,
     pub folder_id: Option<Uuid>,
-    pub filename: String,
-    pub filepath: String,
+    pub name: String,
+    pub path: String,
     pub size: Option<i64>,
     pub created_at: DateTime<Utc>,
 }
@@ -175,7 +175,7 @@ pub async fn get_files<'a>(
 ) -> Result<Json<Vec<ShowFile>>, (Status, Option<&'a str>)> {
     let a = sqlx::query_as!(
         ShowFile,
-        "SELECT id, folder_id, filename, filepath, size, created_at FROM files WHERE user_id = $1",
+        "SELECT id, folder_id, name, path, size, created_at FROM files WHERE user_id = $1",
         auth_user.user_id
     )
     .fetch_all(pool.inner())
@@ -219,6 +219,7 @@ pub async fn get_files<'a>(
 #[derive(Debug, Deserialize, Serialize, FromRow)]
 pub struct ShowFolder {
     pub id: Uuid,
+    pub parent_id: Option<Uuid>,
     pub name: String,
     pub path: String,
     pub created_at: DateTime<Utc>,
@@ -231,13 +232,9 @@ pub async fn get_folders<'a>(
 ) -> Result<Json<Vec<ShowFolder>>, (Status, Option<&'a str>)> {
     sqlx::query_as!(
         ShowFolder,
-        r#"SELECT
-            id,
-            name,
-            get_folder_path(id) as "path!",
-            created_at
+        "SELECT id, parent_id, name, path, created_at
         FROM folders
-        WHERE user_id = $1"#,
+        WHERE user_id = $1",
         auth_user.user_id
     )
     .fetch_all(pool.inner())
@@ -332,14 +329,10 @@ pub async fn create_folder<'a>(
     .await
     .map_err(|_| (Status::InternalServerError, None))?;
 
-    let dir_path = sqlx::query_scalar!(
-        "SELECT get_folder_path(id) FROM folders WHERE id = $1",
-        inserted_id,
-    )
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|_| (Status::InternalServerError, None))?
-    .unwrap();
+    let dir_path = sqlx::query_scalar!("SELECT path FROM folders WHERE id = $1", inserted_id,)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|_| (Status::InternalServerError, None))?;
 
     let new_dir = if parent_name.is_some_and(|v| &v == "public")
         && ADMIN_UUID.get().is_some_and(|v| v == &auth_user.user_id)
@@ -377,13 +370,13 @@ pub async fn delete_folder<'a>(
 
     let f_path = sqlx::query_as!(
         DeleteFolderDB,
-        r#"SELECT get_folder_path(id) as "path!", name FROM folders WHERE id = $1 AND user_id = $2"#,
+        r#"SELECT path, name FROM folders WHERE id = $1 AND user_id = $2"#,
         uuid,
         auth_user.user_id
     )
-        .fetch_optional(pool.inner())
-        .await
-        .map_err(|_| (Status::InternalServerError, None))?;
+    .fetch_optional(pool.inner())
+    .await
+    .map_err(|_| (Status::InternalServerError, None))?;
 
     if f_path.is_none() {
         return Err((Status::BadRequest, Some("Folder does not exist")));
@@ -417,72 +410,58 @@ pub async fn delete_folder<'a>(
     }
 }
 
-// fn generate_name() -> String {
-//     let file_ext = data
-//         .file
-//         .name()
-//         .and_then(|name| PathBuf::from(name).extension().map(|ext| ext.to_string_lossy().to_string()))
-//         .unwrap_or_default();
-//
-//     let now = Utc::now().format("%Y-%m-%d_%H%M%S").to_string();
-//     let new_file_name = format!("{}.{}", now, file_ext);
-//     return new_file_name;
-// }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FolderItem {
+    pub id: Uuid,
+    pub folder_id: Option<Uuid>,
+    pub r#type: String,
+    pub name: String,
+    pub path: String,
+    pub size: Option<i64>,
+    pub created_at: DateTime<Utc>,
+}
 
-// #[post("/upload", data = "<data>", format = "multipart/form-data")]
-// pub async fn upload_file(
-//     auth_user: AuthUser,
-//     mut data: Form<UploadRequest<'_>>,
-//     pool: &State<PgPool>,
-// ) -> Result<status::Accepted<String>, Status> {
-//     println!("sex");
-//     dbg!(&data.file.name());
-//     dbg!(&data.file.raw_name());
-//     dbg!(&data.file.path());
-//     dbg!(&data.file.content_type());
-//     let upload_dir = String::from("../files/public");
-//
-//     if !PathBuf::from(&upload_dir).exists() {
-//         fs::create_dir_all(&upload_dir).map_err(|_| Status::InternalServerError)?;
-//     }
-//
-//     let ext = &data
-//         .file
-//         .raw_name()
-//         .and_then(|v| {
-//             Some(
-//                 Path::new(&v.dangerous_unsafe_unsanitized_raw().to_string())
-//                     .extension()
-//                     .unwrap_or_default()
-//                     .to_string_lossy()
-//                     .to_string(),
-//             )
-//         })
-//         .unwrap_or_default();
-//     let file_name = data
-//         .name
-//         .clone()
-//         .unwrap_or(data.file.name().unwrap_or("unknown").to_string());
-//     let mut file_path = format!("{}/{}.{}", upload_dir, file_name, ext);
-//     let mut attempts = 0;
-//
-//     while Path::new(&file_path).exists() && attempts < 100 {
-//         attempts += 1;
-//         let ext = PathBuf::from(file_path)
-//             .extension()
-//             .map(|ext| ext.to_string_lossy().to_string())
-//             .unwrap_or_default();
-//         file_path = format!("{}/{}_({}).{}", upload_dir, file_name, attempts, ext);
-//     }
-//
-//     if attempts >= 100 {
-//         return Err(Status::InternalServerError);
-//     }
-//
-//     data.file
-//         .move_copy_to(&file_path)
-//         .await
-//         .map_err(|e| Status::InternalServerError)?;
-//
-//     Ok(status::Accepted("File uploaded".to_string()))
-// }
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GetItemsRequest {
+    pub id: String, // UUID
+}
+
+#[get("/items?<at>")]
+pub async fn get_items<'a>(
+    auth_user: AuthUser,
+    at: Option<String>,
+    // data: Json<GetItemsRequest>,
+    pool: &'a State<PgPool>,
+) -> Result<Json<Vec<FolderItem>>, (Status, Option<&'a str>)> {
+    dbg!(&at);
+    if at.is_none() {
+        return sqlx::query_as!(FolderItem,r#"
+        SELECT id as "id!", folder_id, name as "name!", path as "path!", 'file'::text AS "type!", created_at as "created_at!", size
+        FROM files WHERE user_id = $1
+        UNION ALL
+        SELECT id as "id!", parent_id AS folder_id, name as "name!", path as "path!", 'folder'::text AS "type!", created_at as "created_at!", NULL as size
+        FROM folders WHERE user_id = $1;
+        "#, auth_user.user_id)
+            .fetch_all(pool.inner())
+            .await
+            .and_then(|v| Ok(Json(v)))
+            .map_err(|_| (Status::InternalServerError, None));
+    }
+    let uuid = if at.as_ref().is_some_and(|v| v == "null") {
+        None
+    } else {
+        at.map(|v| v.parse::<Uuid>().ok()).ok_or((Status::BadRequest, Some("Invalid uuid")))?
+    };
+
+    sqlx::query_as!(FolderItem,r#"
+        SELECT id as "id!", folder_id, name as "name!", path as "path!", 'file'::text AS "type!", created_at as "created_at!", size
+        FROM files WHERE user_id = $1 AND folder_id IS NOT DISTINCT FROM $2
+        UNION ALL
+        SELECT id as "id!", parent_id AS folder_id, name as "name!", path as "path!", 'folder'::text AS "type!", created_at as "created_at!", NULL as size
+        FROM folders WHERE user_id = $1 AND parent_id IS NOT DISTINCT FROM $2;
+        "#, auth_user.user_id, uuid)
+        .fetch_all(pool.inner())
+        .await
+        .and_then(|v| Ok(Json(v)))
+        .map_err(|_| (Status::InternalServerError, None))
+}

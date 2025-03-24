@@ -12,17 +12,18 @@ CREATE TABLE folders
     name       TEXT        NOT NULL,
     parent_id  UUID REFERENCES folders (id) ON DELETE CASCADE,
     user_id    UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    path       TEXT        NOT NULL
 );
 
 CREATE TABLE files
 (
-    id          UUID PRIMARY KEY     DEFAULT uuidv7(),
-    user_id     UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    folder_id   UUID                 DEFAULT NULL REFERENCES folders (id) ON DELETE CASCADE,
-    filename    TEXT        NOT NULL,
-    filepath    TEXT        NOT NULL UNIQUE,
-    size        BIGINT,
+    id         UUID PRIMARY KEY     DEFAULT uuidv7(),
+    user_id    UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    folder_id  UUID                 DEFAULT NULL REFERENCES folders (id) ON DELETE CASCADE,
+    name       TEXT        NOT NULL,
+    path       TEXT        NOT NULL UNIQUE,
+    size       BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -78,20 +79,42 @@ CREATE OR REPLACE FUNCTION public.get_folder_root(
     LANGUAGE 'sql'
     COST 100
     VOLATILE PARALLEL UNSAFE
-AS $BODY$
-WITH RECURSIVE folder_tree AS (
-    SELECT id, parent_id
-    FROM folders
-    WHERE id = folder_id
+AS
+$BODY$
+WITH RECURSIVE folder_tree AS (SELECT id, parent_id
+                               FROM folders
+                               WHERE id = folder_id
 
-    UNION ALL
+                               UNION ALL
 
-    SELECT f.id, f.parent_id
-    FROM folders f
-             JOIN folder_tree ft ON f.id = ft.parent_id
-)
+                               SELECT f.id, f.parent_id
+                               FROM folders f
+                                        JOIN folder_tree ft ON f.id = ft.parent_id)
 SELECT id
 FROM folder_tree
 WHERE parent_id IS NULL
 LIMIT 1;
 $BODY$;
+
+CREATE OR REPLACE FUNCTION public.set_folder_path()
+    RETURNS trigger
+    LANGUAGE 'plpgsql'
+    COST 100
+    VOLATILE NOT LEAKPROOF
+AS
+$BODY$
+BEGIN
+    IF NEW.parent_id IS NULL THEN
+        NEW.path := NEW.name;
+    ELSE
+        NEW.path := get_folder_path(NEW.parent_id) || '/' || NEW.name;
+    END IF;
+    RETURN NEW;
+END;
+$BODY$;
+
+CREATE OR REPLACE TRIGGER folders_set_path_trigger
+    BEFORE INSERT OR UPDATE OF name, parent_id
+    ON public.folders
+    FOR EACH ROW
+EXECUTE FUNCTION public.set_folder_path();

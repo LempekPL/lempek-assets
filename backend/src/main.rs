@@ -50,6 +50,7 @@ async fn rocket() -> _ {
                 auth::register,
                 auth::logout,
                 auth::get_user,
+                files::get_items,
                 files::upload_file,
                 files::get_files,
                 files::create_folder,
