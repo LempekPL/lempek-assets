@@ -30,26 +30,18 @@ pub async fn create_folder(
         .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
 
     if !auth.admin {
-        let perms = if let Some(parent) = data.parent {
-            sqlx::query_as!(
-                Perms,
-                "SELECT read, modify, edit FROM permissions WHERE user_id = $1 AND folder_id = $2",
-                auth.user_id,
-                parent
-            )
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?
-        } else {
-            sqlx::query_as!(Perms,
-            "SELECT read, modify, edit FROM permissions WHERE user_id = $1 AND folder_id IS NULL",
+        let perms = sqlx::query_as!(
+            Perms,
+            "SELECT read, modify, edit
+                FROM permissions
+                WHERE user_id = $1 AND
+                (($2::uuid IS NULL AND folder_id IS NULL) OR folder_id = $2)",
             auth.user_id,
-            )
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?
-        };
-
+            data.parent
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
         if perms.is_none() || !perms.as_ref().unwrap().edit {
             return Err(ApiResponse::fail(
                 Status::Forbidden,
