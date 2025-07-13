@@ -1,5 +1,5 @@
 [default]
 port = 7001
 address = "0.0.0.0"
-temp_dir = "../files/tmp"
+temp_dir = "../tmp"
 limits = { form = "5GiB", file = "5GiB" }

@@ -1,4 +1,4 @@
-use crate::models::User;
+use crate::models::{ApiResponse, User};
 use bcrypt::{DEFAULT_COST, hash, verify};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -9,15 +9,19 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-fn set_cookie(cookies: &CookieJar<'_>, user: impl Into<AuthUser>) -> Result<(), Status> {
-    let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| Status::InternalServerError)?;
+fn set_cookie(
+    cookies: &CookieJar<'_>,
+    user: impl Into<AuthUser>,
+) -> Result<(), (Status, Json<ApiResponse>)> {
+    let jwt_secret = std::env::var("JWT_SECRET")
+        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "internal server error"))?;
     let auth = &user.into();
     let token = encode::<AuthUser>(
         &Header::default(),
         auth,
         &EncodingKey::from_secret(jwt_secret.as_bytes()),
     )
-    .map_err(|_| Status::InternalServerError)?;
+    .map_err(|_| ApiResponse::fail(Status::InternalServerError, "internal server error"))?;
 
     cookies.add_private(
         Cookie::build(("jwt_token", token))
@@ -29,46 +33,20 @@ fn set_cookie(cookies: &CookieJar<'_>, user: impl Into<AuthUser>) -> Result<(), 
     Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
-struct Success {
-    success: bool,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct AuthResponse {
-    pub success: bool,
-    pub message: Option<String>,
-}
-
-impl AuthResponse {
-    fn success() -> Self {
-        Self {
-            success: true,
-            message: None,
-        }
-    }
-    fn no_success(message: impl Into<String>) -> Self {
-        Self {
-            success: false,
-            message: Some(message.into()),
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthUser {
     pub user_id: Uuid,
     pub login: String,
-    pub allow_upload: bool,
+    pub admin: bool,
     pub exp: usize,
 }
 
-impl Into<AuthUser> for User {
-    fn into(self) -> AuthUser {
+impl From<User> for AuthUser {
+    fn from(user: User) -> Self {
         AuthUser {
-            user_id: self.id,
-            login: self.login,
-            allow_upload: self.allow_upload,
+            user_id: user.id,
+            login: user.login,
+            admin: user.admin,
             exp: (Utc::now() + Duration::hours(5)).timestamp() as usize,
         }
     }
@@ -85,92 +63,147 @@ pub async fn login(
     data: Json<LoginData>,
     pool: &State<PgPool>,
     cookies: &CookieJar<'_>,
-) -> Result<Json<AuthResponse>, Status> {
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> Result<Json<ApiResponse>, (Status, Json<ApiResponse>)> {
+    if auth.is_ok() {
+        return Err(ApiResponse::fail(
+            Status::Conflict,
+            "you are already logged in",
+        ));
+    }
+
+    if data.login.trim().is_empty() || data.password.len() < 8 {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "invalid credentials format",
+        ));
+    }
+
     let user = match sqlx::query_as!(User, "SELECT * FROM users WHERE login = $1", data.login)
         .fetch_one(pool.inner())
         .await
     {
         Ok(user) => user,
         Err(sqlx::Error::RowNotFound) => {
-            return Ok(Json(AuthResponse::no_success("Wrong login or password")));
+            return Err(ApiResponse::fail(
+                Status::BadRequest,
+                "wrong login or password",
+            ));
         }
-        Err(_) => return Err(Status::InternalServerError),
+        Err(_) => {
+            return Err(ApiResponse::fail(
+                Status::InternalServerError,
+                "database error",
+            ));
+        }
     };
 
-    if verify(&data.password, &user.password_hash).map_err(|_| Status::InternalServerError)? {
+    if verify(&data.password, &user.password)
+        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "internal server error"))?
+    {
         set_cookie(cookies, user)?;
-        Ok(Json(AuthResponse::success()))
+        Ok(ApiResponse::success())
     } else {
-        Ok(Json(AuthResponse::no_success("Wrong login or password")))
+        Err(ApiResponse::fail(
+            Status::BadRequest,
+            "wrong login or password",
+        ))
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct RegisterData {
-    pub login: String,
-    pub password: String,
 }
 
 #[post("/register", format = "json", data = "<data>")]
 pub async fn register(
-    data: Json<RegisterData>,
+    data: Json<LoginData>,
     pool: &State<PgPool>,
     cookies: &CookieJar<'_>,
-) -> Result<Json<Success>, Status> {
-    let existing_user = sqlx::query!("SELECT id FROM users WHERE login = $1", data.login)
-        .fetch_optional(pool.inner())
-        .await
-        .map_err(|_| Status::InternalServerError)?;
-
-    if existing_user.is_some() {
-        return Err(Status::Conflict);
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> Result<Json<ApiResponse>, (Status, Json<ApiResponse>)> {
+    if auth.is_ok() {
+        return Err(ApiResponse::fail(
+            Status::Conflict,
+            "you are already logged in",
+        ));
     }
 
-    let hashed_password =
-        hash(&data.password, DEFAULT_COST).map_err(|_| Status::InternalServerError)?;
+    if data.login.trim().is_empty() || data.password.len() < 8 {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "invalid credentials format",
+        ));
+    }
 
-    sqlx::query!(
-        "INSERT INTO users (login, password_hash) VALUES ($1, $2)",
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+
+    let existing_user = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM users WHERE login = $1)",
+        data.login
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?
+    .unwrap_or(false);
+
+    if existing_user {
+        return Err(ApiResponse::fail(
+            Status::Conflict,
+            "user already registered",
+        ));
+    }
+
+    let hashed_password = hash(&data.password, DEFAULT_COST)
+        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "internal server error"))?;
+
+    let user = sqlx::query_as!(
+        User,
+        "INSERT INTO users (login, password) VALUES ($1, $2) RETURNING *",
         data.login,
         hashed_password
     )
-    .execute(pool.inner())
+    .fetch_one(&mut *tx)
     .await
-    .map_err(|_| Status::InternalServerError)?;
-
-    let user = sqlx::query_as!(User, "SELECT * FROM users WHERE login = $1", data.login)
-        .fetch_one(pool.inner())
+    .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+    sqlx::query!("INSERT INTO permissions (user_id) VALUES ($1)", user.id)
+        .execute(&mut *tx)
         .await
-        .map_err(|_| Status::Unauthorized)?;
+        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
     set_cookie(cookies, user)?;
-    Ok(Json(Success { success: true }))
+    tx.commit()
+        .await
+        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+    Ok(ApiResponse::success())
 }
 
 #[post("/logout")]
-pub async fn logout(_auth: AuthUser, cookies: &CookieJar<'_>) -> Result<Json<Success>, Status> {
+pub fn logout(cookies: &CookieJar<'_>) -> Json<ApiResponse> {
     cookies.remove_private(Cookie::from("jwt_token"));
-    Ok(Json(Success { success: true }))
+    ApiResponse::success()
 }
 
 #[derive(Serialize, Deserialize)]
-struct UserData {
-    pub user_id: Uuid,
-    pub login: String,
-    pub allow_upload: bool,
+pub struct UserData {
+    user_id: Uuid,
+    login: String,
+    admin: bool,
 }
 
 #[get("/user")]
-pub async fn get_user(auth: AuthUser) -> Result<Json<UserData>, Status> {
+pub async fn get_user(
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> Result<Json<UserData>, (Status, Json<ApiResponse>)> {
+    let auth = auth?;
     Ok(Json(UserData {
         user_id: auth.user_id,
         login: auth.login,
-        allow_upload: auth.allow_upload,
+        admin: auth.admin,
     }))
 }
 
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for AuthUser {
-    type Error = ();
+    type Error = (Status, Json<ApiResponse>);
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let cookies = req.cookies();
@@ -185,11 +218,19 @@ impl<'r> FromRequest<'r> for AuthUser {
 
         let token = match token {
             Some(t) => t,
-            None => return Outcome::Error((Status::Unauthorized, ())),
+            None => {
+                return Outcome::Error((
+                    Status::Unauthorized,
+                    ApiResponse::fail(Status::Unauthorized, "you are not authenticated"),
+                ));
+            }
         };
 
         let Ok(jwt_secret) = std::env::var("JWT_SECRET") else {
-            return Outcome::Error((Status::InternalServerError, ()));
+            return Outcome::Error((
+                Status::InternalServerError,
+                ApiResponse::fail(Status::InternalServerError, "internal server error"),
+            ));
         };
         let key = DecodingKey::from_secret(jwt_secret.as_bytes());
         match decode::<AuthUser>(&token, &key, &Validation::default()) {
@@ -198,10 +239,16 @@ impl<'r> FromRequest<'r> for AuthUser {
                 if token_data.claims.exp > now {
                     Outcome::Success(token_data.claims)
                 } else {
-                    Outcome::Error((Status::Unauthorized, ()))
+                    Outcome::Error((
+                        Status::Unauthorized,
+                        ApiResponse::fail(Status::Unauthorized, "authentication token expired"),
+                    ))
                 }
             }
-            Err(_) => Outcome::Error((Status::Unauthorized, ())),
+            Err(_) => Outcome::Error((
+                Status::Unauthorized,
+                ApiResponse::fail(Status::Unauthorized, "you are not authenticated"),
+            )),
         }
     }
 }
