@@ -1,15 +1,62 @@
 use crate::FILES_DIR;
 use crate::auth::AuthUser;
-use crate::models::{ApiResponse, Perms, User};
-use chrono::DateTime;
-use chrono::Utc;
+use crate::models::{ApiResponse, File, Folder};
 use rocket::form::Form;
 use rocket::{State, fs::TempFile, http::Status, post, serde::json::Json};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool};
+use sqlx::PgPool;
 use std::path::Path;
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
+
+type ApiResult<T = (Status, Json<ApiResponse>)> = Result<T, (Status, Json<ApiResponse>)>;
+
+fn remove_last_path(s: &str) -> String {
+    Path::new(s)
+        .parent()
+        .and_then(|p| p.to_str())
+        .unwrap_or("")
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn check_name(name: &str) -> ApiResult<()> {
+    let invalid_chars = [
+        '<', '>', ':', '"', '/', '\\', '|', '?', '*', ',', ';', '=', '(', ')', '&', '#', '\'',
+    ];
+    if name
+        .chars()
+        .any(|c| invalid_chars.contains(&c) || c.is_control())
+    {
+        return Err(ApiResponse::fail(
+            Status::Forbidden,
+            "You used illegal character in name\nList of illegal chars: '<', '>', ':', '\"', '/', '\\', '|', '?', '*', ',', ';', '=', '(', ')', '&', '#', '\''",
+            None,
+        ));
+    }
+    let reserved_names = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if reserved_names
+        .iter()
+        .any(|&res| name.eq_ignore_ascii_case(res))
+    {
+        return Err(ApiResponse::fail(
+            Status::Forbidden,
+            "You used illegal name\nList of illegal names: 'CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'",
+            None,
+        ));
+    }
+    if name.len() > 255 {
+        return Err(ApiResponse::fail(
+            Status::Forbidden,
+            "Name is too long",
+            None,
+        ));
+    }
+    Ok(())
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct NewFolderData {
@@ -22,18 +69,16 @@ pub async fn create_folder(
     data: Json<NewFolderData>,
     pool: &State<PgPool>,
     auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
-) -> Result<(Status, Json<ApiResponse>), (Status, Json<ApiResponse>)> {
+) -> ApiResult {
     let auth = auth?;
     let mut tx = pool
         .begin()
         .await
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
     if !auth.admin {
-        let perms = sqlx::query_as!(
-            Perms,
-            "SELECT read, modify, edit
-                FROM permissions
+        let edit = sqlx::query_scalar!(
+            "SELECT edit FROM permissions
                 WHERE user_id = $1 AND
                 (($2::uuid IS NULL AND folder_id IS NULL) OR folder_id = $2)",
             auth.user_id,
@@ -41,14 +86,18 @@ pub async fn create_folder(
         )
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
-        if perms.is_none() || !perms.as_ref().unwrap().edit {
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+        if !edit.is_some_and(|v| v) {
             return Err(ApiResponse::fail(
                 Status::Forbidden,
                 "no permissions to edit contents of this folder",
+                None,
             ));
         }
     }
+
+    check_name(&data.name)?;
 
     let folder_id = sqlx::query_scalar!(
         "INSERT INTO folders (name, parent_id, owner_id) VALUES ($1, $2, $3) RETURNING id",
@@ -65,12 +114,14 @@ pub async fn create_folder(
             return Err(ApiResponse::fail(
                 Status::Conflict,
                 "folder with this name already exists",
+                None,
             ));
         }
-        Err(v) => {
+        Err(e) => {
             return Err(ApiResponse::fail(
                 Status::InternalServerError,
                 "database error",
+                Some(&e),
             ));
         }
     };
@@ -82,11 +133,35 @@ pub async fn create_folder(
         )
         .execute(&mut *tx)
         .await
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
-    tx.commit()
+    let path = sqlx::query_scalar!("SELECT * FROM get_folder_path($1)", folder_id)
+        .fetch_one(&mut *tx)
         .await
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
+        .unwrap_or_default();
+
+    let mut base = PathBuf::from(FILES_DIR.get().unwrap());
+    base.push(&path);
+
+    fs::create_dir(&base).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "error while creating folder",
+            Some(&e),
+        )
+    })?;
+
+    tx.commit().await.map_err(|dbe| {
+        if let Err(e) = fs::remove_dir(&base) {
+            return ApiResponse::fail(
+                Status::InternalServerError,
+                "error while removing created folder",
+                Some(&e),
+            );
+        }
+        ApiResponse::fail(Status::InternalServerError, "database error", Some(&dbe))
+    })?;
 
     Ok((
         Status::Created,
@@ -104,43 +179,57 @@ pub async fn delete_folder(
     data: Json<RemoveFolderData>,
     pool: &State<PgPool>,
     auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
-) -> Result<(Status, Json<ApiResponse>), (Status, Json<ApiResponse>)> {
+) -> ApiResult {
     let auth = auth?;
     let mut tx = pool
         .begin()
         .await
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
     if !auth.admin {
-        let perms = sqlx::query_as!(
-            Perms,
-            "SELECT read, modify, edit FROM permissions WHERE user_id = $1 AND folder_id = $2",
+        let modify = sqlx::query_scalar!(
+            "SELECT modify FROM permissions WHERE user_id = $1 AND folder_id = $2",
             auth.user_id,
             data.id
         )
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
-        if perms.is_none() || !perms.as_ref().unwrap().modify {
+        if !modify.is_some_and(|v| v) {
             return Err(ApiResponse::fail(
                 Status::Forbidden,
                 "no permissions modify this folder",
+                None,
             ));
         }
     }
 
-    sqlx::query!(
-            "DELETE FROM folders WHERE id = $1",
-            data.id,
-        )
+    let path = sqlx::query_scalar!("SELECT * FROM get_folder_path($1)", data.id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
+        .unwrap_or_default();
+
+    let mut base = PathBuf::from(FILES_DIR.get().unwrap());
+    base.push(&path);
+
+    sqlx::query!("DELETE FROM folders WHERE id = $1", data.id,)
         .execute(&mut *tx)
         .await
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
     tx.commit()
         .await
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    fs::remove_dir_all(base).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "error while deleting folder",
+            Some(&e),
+        )
+    })?;
 
     Ok((
         Status::NoContent,
@@ -148,478 +237,401 @@ pub async fn delete_folder(
     ))
 }
 
-//
-// #[derive(Debug, FromForm)]
-// pub struct UploadRequest<'a> {
-//     pub file: TempFile<'a>,
-//     pub folder: Option<String>, // UUID
-//     pub name: Option<String>,
-//     pub overwrite: Option<bool>,
-// }
-//
-// #[post("/upload", data = "<data>", format = "multipart/form-data")]
-// pub async fn upload_file<'a>(
-//     auth_user: AuthUser,
-//     mut data: Form<UploadRequest<'a>>,
-//     pool: &'a State<PgPool>,
-// ) -> Result<String, (Status, Option<&'a str>)> {
-//     let user = sqlx::query_as!(User, "SELECT * FROM users WHERE id = $1", auth_user.user_id)
-//         .fetch_one(pool.inner())
-//         .await
-//         .map_err(|_| (Status::InternalServerError, None))?;
-//     if !user.allow_upload {
-//         return Err((Status::Unauthorized, Some("No upload permission")));
-//     }
-//     let mut upload_dir = FILES_DIR.get().unwrap().to_string();
-//
-//     let folder_uuid = match data.folder.as_ref() {
-//         None => None,
-//         Some(v) => Some(Uuid::parse_str(v).map_err(|_| (Status::BadRequest, None))?),
-//     };
-//     let folder_root_uuid = if let Some(folder_uuid) = folder_uuid {
-//         sqlx::query_scalar!("SELECT get_folder_root($1)", folder_uuid)
-//             .fetch_one(pool.inner())
-//             .await
-//             .map_err(|_| (Status::InternalServerError, None))?
-//     } else {
-//         None
-//     };
-//
-//     let is_public = ADMIN_UUID.get().unwrap() == &user.id
-//         && folder_root_uuid.is_some_and(|v| &v == PUBLIC_DIR_UUID.get().unwrap());
-//     if !is_public {
-//         upload_dir += &user.login;
-//         upload_dir += "/";
-//     };
-//     if let Some(folder_uuid) = folder_uuid {
-//         let str_path = sqlx::query_scalar!("SELECT path FROM folders WHERE id = $1;", folder_uuid)
-//             .fetch_optional(pool.inner())
-//             .await
-//             .map_err(|_| (Status::InternalServerError, None))?
-//             .ok_or((Status::BadRequest, None))?;
-//         upload_dir += (str_path + "/").as_str();
-//     }
-//
-//     if !data.overwrite.unwrap_or(false) {
-//         // let file = sqlx::query_as!(
-//         //     File,
-//         //     "SELECT
-//         // );
-//     }
-//
-//     if !PathBuf::from(&upload_dir).exists() {
-//         fs::create_dir_all(&upload_dir).map_err(|_| (Status::InternalServerError, None))?;
-//     }
-//     let invalid_chars = [
-//         '<', '>', ':', '"', '/', '\\', '|', '?', '*', ',', ';', '=', '(', ')', '&', '#', '\'',
-//     ];
-//     let reserved_names = [
-//         "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-//         "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-//     ];
-//     let name = match &data.name {
-//         None => Ok(data
-//             .file
-//             .raw_name()
-//             .unwrap()
-//             .dangerous_unsafe_unsanitized_raw()
-//             .as_str()),
-//         Some(name) => {
-//             if name
-//                 .chars()
-//                 .any(|c| invalid_chars.contains(&c) || c.is_control())
-//             {
-//                 return Err((
-//                     Status::BadRequest,
-//                     Some(
-//                         "You used illegal character in name\nList of illegal chars: '<', '>', ':', '\"', '/', '\\', '|', '?', '*', ',', ';', '=', '(', ')', '&', '#', '\''",
-//                     ),
-//                 ));
-//             }
-//             Ok(name.as_str())
-//         }
-//     }?;
-//     let file_name = Path::new(name)
-//         .file_name()
-//         .to_owned()
-//         .ok_or((Status::InternalServerError, None))?
-//         .to_string_lossy()
-//         .to_string();
-//
-//     if file_name
-//         .chars()
-//         .any(|c| invalid_chars.contains(&c) || c.is_control())
-//     {
-//         return Err((
-//             Status::BadRequest,
-//             Some(
-//                 "You used illegal character in name\nList of illegal chars: '<', '>', ':', '\"', '/', '\\', '|', '?', '*', ',', ';', '=', '(', ')', '&', '#', '\''",
-//             ),
-//         ));
-//     }
-//     if reserved_names
-//         .iter()
-//         .any(|&name| file_name.eq_ignore_ascii_case(name))
-//     {
-//         return Err((
-//             Status::BadRequest,
-//             Some(
-//                 "You used illegal name\nList of illegal names: 'CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'",
-//             ),
-//         ));
-//     }
-//     let file_dir = upload_dir + &file_name;
-//     if let Err(e) = data.file.persist_to(&file_dir).await {
-//         eprintln!("Failed to save file: {}", e);
-//         dbg!(&file_dir);
-//         return Err((Status::InternalServerError, Some("Failed to save file")));
-//     }
-//
-//     let size: i64 = match fs::metadata(&file_dir) {
-//         Ok(metadata) => metadata.len() as i64,
-//         Err(_) => 0,
-//     };
-//     let insert_result = sqlx::query!(
-//         "INSERT INTO files (user_id, folder_id, name, path, size) VALUES ($1, $2, $3, $4, $5)",
-//         user.id,
-//         folder_uuid,
-//         file_name,
-//         file_dir.trim_start_matches("../files"),
-//         size
-//     )
-//     .execute(pool.inner())
-//     .await
-//     .map_err(|_| (Status::InternalServerError, None))?;
-//     Ok(format!(
-//         "Created file: {}",
-//         file_dir.trim_start_matches("../files")
-//     ))
-// }
-//
-// #[derive(Debug, Deserialize, Serialize, FromRow)]
-// pub struct ShowFile {
-//     pub id: Uuid,
-//     pub folder_id: Option<Uuid>,
-//     pub name: String,
-//     pub path: String,
-//     pub size: Option<i64>,
-//     pub created_at: DateTime<Utc>,
-// }
-//
-// #[get("/files")]
-// pub async fn get_files<'a>(
-//     auth_user: AuthUser,
-//     pool: &'a State<PgPool>,
-// ) -> Result<Json<Vec<ShowFile>>, (Status, Option<&'a str>)> {
-//     let a = sqlx::query_as!(
-//         ShowFile,
-//         "SELECT id, folder_id, name, path, size, created_at FROM files WHERE user_id = $1",
-//         auth_user.user_id
-//     )
-//     .fetch_all(pool.inner())
-//     .await
-//     .map_err(|_| (Status::InternalServerError, None))?;
-//     Ok(Json(a))
-// }
-//
-// // #[derive(Debug, FromForm)]
-// // pub struct UploadRequest<'a> {
-// //     pub file: TempFile<'a>,
-// //     pub folder: Option<String>, // UUID
-// //     pub name: Option<String>,
-// //     pub overwrite: Option<bool>,
-// // }
-// //
-// // #[post("/files")]
-// // pub async fn upload_file<'a>(
-// //     auth_user: AuthUser,
-// //     mut data: Form<UploadRequest<'a>>,
-// //     pool: &'a State<PgPool>,
-// // ) -> Result<String, (Status, Option<&'a str>)> {
-//
-// // #[derive(Debug, FromForm)]
-// // pub struct UploadRequest<'a> {
-// //     pub file: TempFile<'a>,
-// //     pub folder: Option<String>, // UUID
-// //     pub name: Option<String>,
-// //     pub overwrite: Option<bool>,
-// // }
-// //
-// // #[post("/upload", data = "<data>", format = "multipart/form-data")]
-// // pub async fn upload_file<'a>(
-// //     auth_user: AuthUser,
-// //     mut data: Form<UploadRequest<'a>>,
-// //     pool: &'a State<PgPool>,
-// // ) -> Result<String, (Status, Option<&'a str>)> {
-// //
-// // }
-//
-// #[derive(Debug, Deserialize, Serialize, FromRow)]
-// pub struct ShowFolder {
-//     pub id: Uuid,
-//     pub parent_id: Option<Uuid>,
-//     pub name: String,
-//     pub path: String,
-//     pub created_at: DateTime<Utc>,
-// }
-//
-// #[get("/folders")]
-// pub async fn get_folders<'a>(
-//     auth_user: AuthUser,
-//     pool: &'a State<PgPool>,
-// ) -> Result<Json<Vec<ShowFolder>>, (Status, Option<&'a str>)> {
-//     sqlx::query_as!(
-//         ShowFolder,
-//         "SELECT id, parent_id, name, path, created_at
-//         FROM folders
-//         WHERE user_id = $1",
-//         auth_user.user_id
-//     )
-//     .fetch_all(pool.inner())
-//     .await
-//     .and_then(|v| Ok(Json(v)))
-//     .map_err(|_| (Status::InternalServerError, None))
-// }
-//
-// #[get("/folder?<id>")]
-// pub async fn get_folder<'a>(
-//     auth_user: AuthUser,
-//     id: String,
-//     pool: &'a State<PgPool>,
-// ) -> Result<Json<ShowFolder>, (Status, Option<&'a str>)> {
-//     let uuid = Uuid::parse_str(id.as_str())
-//         .map_err(|_| (Status::BadRequest, Some("Invalid folder UUID")))?;
-//     sqlx::query_as!(
-//         ShowFolder,
-//         "SELECT id, parent_id, name, path, created_at
-//         FROM folders
-//         WHERE user_id = $1 AND id = $2",
-//         auth_user.user_id, uuid
-//     )
-//         .fetch_one(pool.inner())
-//         .await
-//         .and_then(|v| Ok(Json(v)))
-//         .map_err(|_| (Status::InternalServerError, None))
-// }
-//
-// #[derive(Debug, Deserialize, Serialize)]
-// pub struct CreateFolderRequest {
-//     pub parent_folder: Option<String>, // UUID
-//     pub name: String,
-// }
-//
-// #[post("/folder", data = "<data>")]
-// pub async fn create_folder<'a>(
-//     auth_user: AuthUser,
-//     data: Json<CreateFolderRequest>,
-//     pool: &'a State<PgPool>,
-// ) -> Result<String, (Status, Option<&'a str>)> {
-//     if data.name.is_empty() {
-//         return Err((Status::BadRequest, Some("Empty name")));
-//     }
-//     let parent_name;
-//     let parent_uuid = if let Some(ref parent_str) = data.parent_folder {
-//         let uuid = Uuid::parse_str(parent_str)
-//             .map_err(|_| (Status::BadRequest, Some("Invalid parent_folder UUID")))?;
-//         let parent_exists = sqlx::query_scalar!(
-//             "SELECT name FROM folders WHERE user_id = $1 AND id = $2",
-//             auth_user.user_id,
-//             uuid
-//         )
-//         .fetch_optional(pool.inner())
-//         .await
-//         .map_err(|_| (Status::InternalServerError, None))?;
-//         if parent_exists.is_none() {
-//             return Err((Status::BadRequest, Some("Parent folder does not exist")));
-//         }
-//         parent_name = parent_exists;
-//         Some(uuid)
-//     } else {
-//         parent_name = None;
-//         None
-//     };
-//
-//     let invalid_chars = [
-//         '<', '>', ':', '"', '/', '\\', '|', '?', '*', ',', ';', '=', '(', ')', '&', '#', '\'',
-//     ];
-//     if data
-//         .name
-//         .chars()
-//         .any(|c| invalid_chars.contains(&c) || c.is_control())
-//     {
-//         return Err((
-//             Status::BadRequest,
-//             Some(
-//                 "You used illegal character in name\nList of illegal chars: '<', '>', ':', '\"', '/', '\\', '|', '?', '*', ',', ';', '=', '(', ')', '&', '#', '\''",
-//             ),
-//         ));
-//     }
-//
-//     let existing = sqlx::query_scalar!(
-//         "
-//         SELECT id FROM folders
-//         WHERE name = $1
-//           AND parent_id IS NOT DISTINCT FROM $2
-//           AND user_id = $3
-//         ",
-//         data.name,
-//         parent_uuid,
-//         auth_user.user_id
-//     )
-//     .fetch_optional(pool.inner())
-//     .await
-//     .map_err(|_| (Status::InternalServerError, None))?;
-//
-//     if let Some(existing_id) = existing {
-//         return Ok(format!("Folder already exists: {}", existing_id));
-//     }
-//
-//     let inserted_id = sqlx::query_scalar!(
-//         "
-//         INSERT INTO folders (name, parent_id, user_id)
-//         VALUES ($1, $2, $3)
-//         RETURNING id
-//         ",
-//         data.name,
-//         parent_uuid,
-//         auth_user.user_id
-//     )
-//     .fetch_one(pool.inner())
-//     .await
-//     .map_err(|_| (Status::InternalServerError, None))?;
-//
-//     let dir_path = sqlx::query_scalar!("SELECT path FROM folders WHERE id = $1", inserted_id,)
-//         .fetch_one(pool.inner())
-//         .await
-//         .map_err(|_| (Status::InternalServerError, None))?;
-//
-//     let new_dir = if parent_name.is_some_and(|v| &v == "public")
-//         && ADMIN_UUID.get().is_some_and(|v| v == &auth_user.user_id)
-//     {
-//         FILES_DIR.get().unwrap().to_string() + &dir_path
-//     } else {
-//         FILES_DIR.get().unwrap().to_string() + &auth_user.login + "/" + &dir_path
-//     };
-//
-//     if !PathBuf::from(&new_dir).exists() {
-//         fs::create_dir_all(&new_dir).map_err(|_| (Status::InternalServerError, None))?;
-//     }
-//
-//     Ok(format!("Created folder: {}", inserted_id))
-// }
-//
-// #[derive(Debug, Deserialize, Serialize)]
-// pub struct DeleteFolderRequest {
-//     pub id: String, // UUID
-// }
-//
-// struct DeleteFolderDB {
-//     name: String,
-//     path: String,
-// }
-//
-// #[delete("/folder", data = "<data>")]
-// pub async fn delete_folder<'a>(
-//     auth_user: AuthUser,
-//     data: Json<DeleteFolderRequest>,
-//     pool: &'a State<PgPool>,
-// ) -> Result<String, (Status, Option<&'a str>)> {
-//     let uuid = Uuid::parse_str(data.id.as_str())
-//         .map_err(|_| (Status::BadRequest, Some("Invalid folder UUID")))?;
-//
-//     let f_path = sqlx::query_as!(
-//         DeleteFolderDB,
-//         r#"SELECT path, name FROM folders WHERE id = $1 AND user_id = $2"#,
-//         uuid,
-//         auth_user.user_id
-//     )
-//     .fetch_optional(pool.inner())
-//     .await
-//     .map_err(|_| (Status::InternalServerError, None))?;
-//
-//     if f_path.is_none() {
-//         return Err((Status::BadRequest, Some("Folder does not exist")));
-//     }
-//     let f_path = f_path.unwrap();
-//
-//     let old_dir =
-//         if f_path.name == "public" && ADMIN_UUID.get().is_some_and(|v| v == &auth_user.user_id) {
-//             FILES_DIR.get().unwrap().to_string() + &f_path.path
-//         } else {
-//             FILES_DIR.get().unwrap().to_string() + &auth_user.login + "/" + &f_path.path
-//         };
-//
-//     let result = sqlx::query!(
-//         "DELETE FROM folders WHERE id = $1 AND user_id = $2",
-//         uuid,
-//         auth_user.user_id
-//     )
-//     .execute(pool.inner())
-//     .await
-//     .map_err(|_| (Status::InternalServerError, None))?;
-//
-//     if PathBuf::from(&old_dir).exists() {
-//         fs::remove_dir_all(&old_dir).map_err(|_| (Status::InternalServerError, None))?;
-//     }
-//
-//     if result.rows_affected() > 0 {
-//         Ok(format!("Folder removed: {}", uuid))
-//     } else {
-//         Ok("Folder does not exist".to_string())
-//     }
-// }
-//
-// #[derive(Debug, Serialize, Deserialize)]
-// pub struct FolderItem {
-//     pub id: Uuid,
-//     pub folder_id: Option<Uuid>,
-//     pub r#type: String,
-//     pub name: String,
-//     pub path: String,
-//     pub size: Option<i64>,
-//     pub created_at: DateTime<Utc>,
-// }
-//
-// #[derive(Debug, Deserialize, Serialize)]
-// pub struct GetItemsRequest {
-//     pub id: String, // UUID
-// }
-//
-// #[get("/items?<at>")]
-// pub async fn get_items<'a>(
-//     auth_user: AuthUser,
-//     at: Option<String>,
-//     // data: Json<GetItemsRequest>,
-//     pool: &'a State<PgPool>,
-// ) -> Result<Json<Vec<FolderItem>>, (Status, Option<&'a str>)> {
-//     if at.is_none() {
-//         return sqlx::query_as!(FolderItem,r#"
-//         SELECT id as "id!", folder_id, name as "name!", path as "path!", 'file'::text AS "type!", created_at as "created_at!", size
-//         FROM files WHERE user_id = $1
-//         UNION ALL
-//         SELECT id as "id!", parent_id AS folder_id, name as "name!", path as "path!", 'folder'::text AS "type!", created_at as "created_at!", NULL as size
-//         FROM folders WHERE user_id = $1;
-//         "#, auth_user.user_id)
-//             .fetch_all(pool.inner())
-//             .await
-//             .and_then(|v| Ok(Json(v)))
-//             .map_err(|_| (Status::InternalServerError, None));
-//     }
-//     let uuid = if at.as_ref().is_some_and(|v| v == "null") {
-//         None
-//     } else {
-//         at.map(|v| v.parse::<Uuid>().ok()).ok_or((Status::BadRequest, Some("Invalid uuid")))?
-//     };
-//
-//     sqlx::query_as!(FolderItem,r#"
-//         SELECT id as "id!", folder_id, name as "name!", path as "path!", 'file'::text AS "type!", created_at as "created_at!", size
-//         FROM files WHERE user_id = $1 AND folder_id IS NOT DISTINCT FROM $2
-//         UNION ALL
-//         SELECT id as "id!", parent_id AS folder_id, name as "name!", path as "path!", 'folder'::text AS "type!", created_at as "created_at!", NULL as size
-//         FROM folders WHERE user_id = $1 AND parent_id IS NOT DISTINCT FROM $2;
-//         "#, auth_user.user_id, uuid)
-//         .fetch_all(pool.inner())
-//         .await
-//         .and_then(|v| Ok(Json(v)))
-//         .map_err(|_| (Status::InternalServerError, None))
-// }
+#[derive(Serialize, Deserialize)]
+pub struct EditFolderData {
+    pub id: Uuid,
+    pub name: String,
+}
+
+#[patch("/folder", format = "json", data = "<data>")]
+pub async fn edit_folder(
+    data: Json<EditFolderData>,
+    pool: &State<PgPool>,
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> ApiResult {
+    let auth = auth?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    if !auth.admin {
+        let modify = sqlx::query_scalar!(
+            "SELECT modify FROM permissions WHERE user_id = $1 AND folder_id = $2",
+            auth.user_id,
+            data.id
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+        if !modify.is_some_and(|v| v) {
+            return Err(ApiResponse::fail(
+                Status::Forbidden,
+                "no permissions modify this folder",
+                None,
+            ));
+        }
+    }
+
+    let old_path = sqlx::query_scalar!("SELECT * FROM get_folder_path($1)", data.id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
+        .unwrap_or_default();
+
+    let result = sqlx::query!(
+        "UPDATE folders SET name = $1 WHERE id = $2",
+        data.name,
+        data.id,
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::Database(db_err) = &e
+            && db_err.is_unique_violation()
+        {
+            ApiResponse::fail(
+                Status::Conflict,
+                "folder with this name already exists",
+                None,
+            )
+        } else {
+            ApiResponse::fail(Status::InternalServerError, "database error", Some(&e))
+        }
+    })?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiResponse::fail(
+            Status::NotFound,
+            "folder not found",
+            None,
+        ));
+    }
+
+    fs::rename(
+        FILES_DIR.get().unwrap().to_string() + &old_path,
+        FILES_DIR.get().unwrap().to_string() + &remove_last_path(&old_path) + "/" + &data.name,
+    )
+    .map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "error while renaming folder",
+            Some(&e),
+        )
+    })?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok((
+        Status::NoContent,
+        ApiResponse::success_with("renamed folder"),
+    ))
+}
+
+#[get("/folders/all")]
+pub async fn get_all_folders(
+    pool: &State<PgPool>,
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> ApiResult<Json<Vec<Folder>>> {
+    let auth = auth?;
+
+    let result = if auth.admin {
+        sqlx::query_as!(
+            Folder,
+            r#"
+                SELECT f.id, f.parent_id, f.name, f.owner_id, f.created_at, f.updated_at
+                FROM folders f
+            "#
+        )
+        .fetch_all(pool.inner())
+        .await
+    } else {
+        sqlx::query_as!(
+            Folder,
+            r#"
+        SELECT f.id, f.parent_id, f.name, f.owner_id, f.created_at, f.updated_at
+        FROM folders f
+        JOIN permissions p ON p.folder_id = f.id
+        WHERE p.user_id = $1
+          AND p.read = TRUE
+        "#,
+            auth.user_id
+        )
+        .fetch_all(pool.inner())
+        .await
+    }
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok(Json(result))
+}
+
+#[get("/folders?<parent>")]
+pub async fn get_folders(
+    parent: Option<Uuid>,
+    pool: &State<PgPool>,
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> ApiResult<Json<Vec<Folder>>> {
+    let auth = auth?;
+
+    let result = if auth.admin {
+        sqlx::query_as!(
+            Folder,
+            r#"
+            SELECT f.id, f.parent_id, f.name, f.owner_id, f.created_at, f.updated_at
+            FROM folders f
+            WHERE (
+                ($1::uuid IS NULL AND f.parent_id IS NULL)
+                OR f.parent_id = $1
+            )
+        "#,
+            parent
+        )
+        .fetch_all(pool.inner())
+        .await
+    } else {
+        sqlx::query_as!(
+            Folder,
+            r#"
+            SELECT f.id, f.parent_id, f.name, f.owner_id, f.created_at, f.updated_at
+            FROM folders f
+            JOIN permissions p ON p.folder_id = f.id
+            WHERE p.user_id = $1
+              AND p.read = TRUE
+              AND (
+                ($2::uuid IS NULL AND f.parent_id IS NULL)
+                OR f.parent_id = $2
+              )
+        "#,
+            auth.user_id,
+            parent
+        )
+        .fetch_all(pool.inner())
+        .await
+    }
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok(Json(result))
+}
+
+#[derive(Debug, FromForm)]
+pub struct UploadFile<'a> {
+    pub file: TempFile<'a>,
+    pub folder: Option<Uuid>,
+    pub name: Option<String>,
+    pub overwrite: Option<bool>,
+}
+
+#[post("/upload", data = "<data>", format = "multipart/form-data")]
+pub async fn upload_file<'a>(
+    mut data: Form<UploadFile<'a>>,
+    pool: &State<PgPool>,
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> ApiResult {
+    let auth = auth?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    if !auth.admin {
+        let edit = sqlx::query_scalar!(
+            "SELECT edit FROM permissions WHERE user_id = $1 AND (($2::uuid IS NULL AND folder_id IS NULL) OR folder_id = $2)",
+            auth.user_id,
+            data.folder
+        )
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+        if !edit.is_some_and(|v| v) {
+            return Err(ApiResponse::fail(
+                Status::Forbidden,
+                "no permissions to upload file",
+                None,
+            ));
+        }
+    }
+
+    let name = data
+        .file
+        .raw_name()
+        .unwrap()
+        .dangerous_unsafe_unsanitized_raw();
+    let name = data.name.clone().unwrap_or(name.to_string());
+    check_name(&name)?;
+
+    let overwrite = data.overwrite.unwrap_or(false);
+    let exist = sqlx::query_scalar!("SELECT EXISTS (SELECT 1 FROM files WHERE name = $1 AND (($2::uuid IS NULL AND folder_id IS NULL) OR folder_id = $2))", name, data.folder)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
+        .unwrap_or(false);
+    if exist && !overwrite {
+        return Err(ApiResponse::fail(
+            Status::Conflict,
+            "file with this name already exists",
+            None,
+        ));
+    } else if exist && overwrite {
+        let mut base = PathBuf::from(FILES_DIR.get().unwrap());
+        let path = sqlx::query_scalar!("SELECT * FROM get_folder_path($1)", data.folder)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| {
+                ApiResponse::fail(Status::InternalServerError, "database error", Some(&e))
+            })?
+            .ok_or_else(|| ApiResponse::fail(Status::NotFound, "folder not found", None))?;
+        base.push(path);
+        base.push(&name);
+        sqlx::query!("DELETE FROM files WHERE name = $1 AND (($2::uuid IS NULL AND folder_id IS NULL) OR folder_id = $2)", name, data.folder)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+        fs::remove_file(&base).map_err(|e| {
+            ApiResponse::fail(
+                Status::InternalServerError,
+                "error while overwriting file",
+                Some(&e),
+            )
+        })?;
+    }
+    let mut base = PathBuf::from(FILES_DIR.get().unwrap());
+    if let Some(folder) = data.folder {
+        let path = sqlx::query_scalar!("SELECT * FROM get_folder_path($1)", folder)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| {
+                ApiResponse::fail(Status::InternalServerError, "database error", Some(&e))
+            })?
+            .ok_or_else(|| ApiResponse::fail(Status::NotFound, "folder not found", None))?;
+        base.push(path);
+    };
+    if !base.exists() {
+        fs::create_dir_all(&base).map_err(|e| {
+            ApiResponse::fail(
+                Status::InternalServerError,
+                "could not create folders",
+                Some(&e),
+            )
+        })?;
+    }
+    base.push(&name);
+    if let Err(e) = data.file.persist_to(&base).await {
+        return Err(ApiResponse::fail(
+            Status::InternalServerError,
+            "failed to save file",
+            Some(&e),
+        ));
+    }
+    let size: i64 = match fs::metadata(&base) {
+        Ok(metadata) => metadata.len() as i64,
+        Err(_) => 0,
+    };
+    sqlx::query!(
+        "INSERT INTO files (owner_id, folder_id, name, size) VALUES ($1, $2, $3, $4)",
+        auth.user_id,
+        data.folder,
+        name,
+        size,
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok((
+        Status::Created,
+        ApiResponse::success_with(format!(r#"created file named: "{}""#, name)),
+    ))
+}
+
+#[get("/files/all")]
+pub async fn get_all_files(
+    pool: &State<PgPool>,
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> ApiResult<Json<Vec<File>>> {
+    let auth = auth?;
+
+    let result = if auth.admin {
+        sqlx::query_as!(
+            File,
+            r#"
+            SELECT f.id, f.folder_id, f.owner_id, f.name, f.size, f.created_at, f.updated_at
+            FROM files f
+            "#
+        )
+        .fetch_all(pool.inner())
+        .await
+    } else {
+        sqlx::query_as!(
+            File,
+            r#"
+            SELECT f.id, f.folder_id, f.owner_id, f.name, f.size, f.created_at, f.updated_at
+            FROM files f
+            JOIN permissions p ON p.folder_id = f.folder_id
+            WHERE p.user_id = $1
+              AND p.read = TRUE
+        "#,
+            auth.user_id
+        )
+        .fetch_all(pool.inner())
+        .await
+    }
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok(Json(result))
+}
+
+#[get("/files?<parent>")]
+pub async fn get_files(
+    parent: Option<Uuid>,
+    pool: &State<PgPool>,
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> ApiResult<Json<Vec<File>>> {
+    let auth = auth?;
+
+    let result = if auth.admin {
+        sqlx::query_as!(
+            File,
+            r#"
+            SELECT f.id, f.folder_id, f.owner_id, f.name, f.size, f.created_at, f.updated_at
+            FROM files f
+            WHERE (
+                ($1::uuid IS NULL AND f.folder_id IS NULL)
+                OR f.folder_id = $1
+            )
+        "#,
+            parent
+        )
+        .fetch_all(pool.inner())
+        .await
+    } else {
+        sqlx::query_as!(
+            File,
+            r#"
+            SELECT f.id, f.folder_id, f.owner_id, f.name, f.size, f.created_at, f.updated_at
+            FROM files f
+            JOIN permissions p ON p.folder_id = f.folder_id
+            WHERE p.user_id = $1
+              AND p.read = TRUE
+              AND (
+                ($2::uuid IS NULL AND f.folder_id IS NULL)
+                OR f.folder_id = $2
+              )
+        "#,
+            auth.user_id,
+            parent
+        )
+        .fetch_all(pool.inner())
+        .await
+    }
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok(Json(result))
+}

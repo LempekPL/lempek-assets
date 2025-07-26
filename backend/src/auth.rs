@@ -13,15 +13,26 @@ fn set_cookie(
     cookies: &CookieJar<'_>,
     user: impl Into<AuthUser>,
 ) -> Result<(), (Status, Json<ApiResponse>)> {
-    let jwt_secret = std::env::var("JWT_SECRET")
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "internal server error"))?;
+    let jwt_secret = std::env::var("JWT_SECRET").map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "internal server error",
+            Some(&e),
+        )
+    })?;
     let auth = &user.into();
     let token = encode::<AuthUser>(
         &Header::default(),
         auth,
         &EncodingKey::from_secret(jwt_secret.as_bytes()),
     )
-    .map_err(|_| ApiResponse::fail(Status::InternalServerError, "internal server error"))?;
+    .map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "internal server error",
+            Some(&e),
+        )
+    })?;
 
     cookies.add_private(
         Cookie::build(("jwt_token", token))
@@ -69,6 +80,7 @@ pub async fn login(
         return Err(ApiResponse::fail(
             Status::Conflict,
             "you are already logged in",
+            None,
         ));
     }
 
@@ -76,6 +88,7 @@ pub async fn login(
         return Err(ApiResponse::fail(
             Status::BadRequest,
             "invalid credentials format",
+            None,
         ));
     }
 
@@ -88,25 +101,32 @@ pub async fn login(
             return Err(ApiResponse::fail(
                 Status::BadRequest,
                 "wrong login or password",
+                None,
             ));
         }
-        Err(_) => {
+        Err(e) => {
             return Err(ApiResponse::fail(
                 Status::InternalServerError,
                 "database error",
+                Some(&e),
             ));
         }
     };
 
-    if verify(&data.password, &user.password)
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "internal server error"))?
-    {
+    if verify(&data.password, &user.password).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "internal server error",
+            Some(&e),
+        )
+    })? {
         set_cookie(cookies, user)?;
         Ok(ApiResponse::success())
     } else {
         Err(ApiResponse::fail(
             Status::BadRequest,
             "wrong login or password",
+            None,
         ))
     }
 }
@@ -122,6 +142,7 @@ pub async fn register(
         return Err(ApiResponse::fail(
             Status::Conflict,
             "you are already logged in",
+            None,
         ));
     }
 
@@ -129,13 +150,14 @@ pub async fn register(
         return Err(ApiResponse::fail(
             Status::BadRequest,
             "invalid credentials format",
+            None,
         ));
     }
 
     let mut tx = pool
         .begin()
         .await
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
     let existing_user = sqlx::query_scalar!(
         "SELECT EXISTS (SELECT 1 FROM users WHERE login = $1)",
@@ -143,18 +165,24 @@ pub async fn register(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
     .unwrap_or(false);
 
     if existing_user {
         return Err(ApiResponse::fail(
             Status::Conflict,
             "user already registered",
+            None,
         ));
     }
 
-    let hashed_password = hash(&data.password, DEFAULT_COST)
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "internal server error"))?;
+    let hashed_password = hash(&data.password, DEFAULT_COST).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "internal server error",
+            Some(&e),
+        )
+    })?;
 
     let user = sqlx::query_as!(
         User,
@@ -164,15 +192,15 @@ pub async fn register(
     )
     .fetch_one(&mut *tx)
     .await
-    .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
     sqlx::query!("INSERT INTO permissions (user_id) VALUES ($1)", user.id)
         .execute(&mut *tx)
         .await
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
     set_cookie(cookies, user)?;
     tx.commit()
         .await
-        .map_err(|_| ApiResponse::fail(Status::InternalServerError, "database error"))?;
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
     Ok(ApiResponse::success())
 }
 
@@ -221,7 +249,7 @@ impl<'r> FromRequest<'r> for AuthUser {
             None => {
                 return Outcome::Error((
                     Status::Unauthorized,
-                    ApiResponse::fail(Status::Unauthorized, "you are not authenticated"),
+                    ApiResponse::fail(Status::Unauthorized, "you are not authenticated", None),
                 ));
             }
         };
@@ -229,7 +257,7 @@ impl<'r> FromRequest<'r> for AuthUser {
         let Ok(jwt_secret) = std::env::var("JWT_SECRET") else {
             return Outcome::Error((
                 Status::InternalServerError,
-                ApiResponse::fail(Status::InternalServerError, "internal server error"),
+                ApiResponse::fail(Status::InternalServerError, "internal server error", None),
             ));
         };
         let key = DecodingKey::from_secret(jwt_secret.as_bytes());
@@ -241,13 +269,21 @@ impl<'r> FromRequest<'r> for AuthUser {
                 } else {
                     Outcome::Error((
                         Status::Unauthorized,
-                        ApiResponse::fail(Status::Unauthorized, "authentication token expired"),
+                        ApiResponse::fail(
+                            Status::Unauthorized,
+                            "authentication token expired",
+                            None,
+                        ),
                     ))
                 }
             }
-            Err(_) => Outcome::Error((
+            Err(e) if e.kind() == &jsonwebtoken::errors::ErrorKind::InvalidToken => Outcome::Error((
                 Status::Unauthorized,
-                ApiResponse::fail(Status::Unauthorized, "you are not authenticated"),
+                ApiResponse::fail(Status::Unauthorized, "you are not authenticated", None),
+            )),
+            Err(e) => Outcome::Error((
+                Status::Unauthorized,
+                ApiResponse::fail(Status::Unauthorized, "authentication error", Some(&e)),
             )),
         }
     }

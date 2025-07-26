@@ -1,42 +1,86 @@
 use rocket::http::Status;
 use rocket::serde::json::Json;
-use serde::{Serialize, Deserialize};
-use sqlx::{FromRow};
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use sqlx::types::chrono::{DateTime, Utc};
+use std::error::Error;
+use std::panic::Location;
 use uuid::Uuid;
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ApiResponse {
     pub success: bool,
+    pub err_id: Option<String>,
     pub detail: Option<String>,
 }
 
 impl ApiResponse {
+    fn print_err(loc: &Location, msg: &str, error: Option<&(dyn Error)>) -> String {
+        let err_id = Uuid::now_v7().to_string();
+        if let Some(err) = error {
+            log::error!(
+                "{}\n[{}:{}:{}] {}\n{}",
+                err_id,
+                loc.file(),
+                loc.line(),
+                loc.column(),
+                msg,
+                err
+            );
+        }
+        // else {
+        //     log::error!(
+        //         "{}\n[{}:{}:{}] {}",
+        //         err_id,
+        //         loc.file(),
+        //         loc.line(),
+        //         loc.column(),
+        //         msg,
+        //     );
+        // }
+        err_id
+    }
+
     pub fn success() -> Json<Self> {
         Json(Self {
             success: true,
+            err_id: None,
             detail: None,
         })
     }
     pub fn success_with(message: impl Into<String>) -> Json<Self> {
         Json(Self {
             success: true,
+            err_id: None,
             detail: Some(message.into()),
         })
     }
-    pub fn no_success(message: impl Into<String>) -> Json<Self> {
+
+    #[track_caller]
+    pub fn no_success(message: impl Into<String>, error: Option<&(dyn Error)>) -> Json<Self> {
+        let msg = message.into();
+        let err_id = Self::print_err(Location::caller(), &msg, error);
         Json(Self {
             success: false,
-            detail: Some(message.into()),
+            err_id: Some(err_id),
+            detail: Some(msg),
         })
     }
-    pub fn fail(status: Status, message: impl Into<String>) -> (Status, Json<Self>) {
+
+    #[track_caller]
+    pub fn fail(
+        status: Status,
+        message: impl Into<String>,
+        error: Option<&(dyn Error)>,
+    ) -> (Status, Json<Self>) {
+        let msg = message.into();
+        let err_id = Self::print_err(Location::caller(), &msg, error);
         (
             status,
             Json(Self {
                 success: false,
-                detail: Some(message.into()),
+                err_id: Some(err_id),
+                detail: Some(msg),
             }),
         )
     }
@@ -52,23 +96,22 @@ pub struct User {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(FromRow)]
+#[derive(FromRow, Serialize)]
 pub struct Folder {
     pub id: Uuid,
-    pub name: String,
     pub parent_id: Option<Uuid>,
-    pub user_id: Uuid,
+    pub owner_id: Uuid,
+    pub name: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(FromRow)]
+#[derive(FromRow, Serialize)]
 pub struct File {
     pub id: Uuid,
     pub folder_id: Option<Uuid>,
-    pub user_id: Uuid,
-    pub filename: String,
-    pub filepath: String,
+    pub owner_id: Uuid,
+    pub name: String,
     pub size: Option<i64>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -79,13 +122,6 @@ pub struct Permission {
     pub id: Uuid,
     pub folder_id: Option<Uuid>,
     pub user_id: Uuid,
-    pub read: bool,
-    pub modify: bool,
-    pub edit: bool,
-}
-
-#[derive(FromRow)]
-pub struct Perms {
     pub read: bool,
     pub modify: bool,
     pub edit: bool,
