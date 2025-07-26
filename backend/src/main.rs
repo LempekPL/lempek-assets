@@ -5,6 +5,7 @@ mod auth;
 mod cors;
 mod db;
 mod models;
+mod perms;
 
 use crate::cors::Cors;
 use db::connect_db;
@@ -52,13 +53,8 @@ async fn rocket() -> _ {
                 assets::upload_file,
                 assets::get_all_files,
                 assets::get_files,
-                //     files::get_items,
-                //     files::upload_file,
-                //     files::get_files,
-                //     files::create_folder,
-                //     files::get_folders,
-                //     files::get_folder,
-                //     files::delete_folder,
+                assets::delete_file,
+                assets::edit_file,
             ],
         )
 }

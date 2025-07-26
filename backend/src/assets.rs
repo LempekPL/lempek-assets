@@ -1,15 +1,22 @@
 use crate::FILES_DIR;
 use crate::auth::AuthUser;
 use crate::models::{ApiResponse, File, Folder};
+use crate::perms::{ApiResult, PermissionKind, check_permission};
 use rocket::form::Form;
 use rocket::{State, fs::TempFile, http::Status, post, serde::json::Json};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use std::path::Path;
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
 
-type ApiResult<T = (Status, Json<ApiResponse>)> = Result<T, (Status, Json<ApiResponse>)>;
+async fn get_folder_path(tx: &mut PgConnection, id: Option<Uuid>) -> ApiResult<String> {
+    Ok(sqlx::query_scalar!("SELECT * FROM get_folder_path($1)", id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
+        .unwrap_or_default())
+}
 
 fn remove_last_path(s: &str) -> String {
     Path::new(s)
@@ -76,27 +83,7 @@ pub async fn create_folder(
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
-    if !auth.admin {
-        let edit = sqlx::query_scalar!(
-            "SELECT edit FROM permissions
-                WHERE user_id = $1 AND
-                (($2::uuid IS NULL AND folder_id IS NULL) OR folder_id = $2)",
-            auth.user_id,
-            data.parent
-        )
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
-
-        if !edit.is_some_and(|v| v) {
-            return Err(ApiResponse::fail(
-                Status::Forbidden,
-                "no permissions to edit contents of this folder",
-                None,
-            ));
-        }
-    }
-
+    check_permission(&mut tx, &auth, data.parent, PermissionKind::Edit).await?;
     check_name(&data.name)?;
 
     let folder_id = sqlx::query_scalar!(
@@ -135,14 +122,8 @@ pub async fn create_folder(
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
-    let path = sqlx::query_scalar!("SELECT * FROM get_folder_path($1)", folder_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
-        .unwrap_or_default();
-
     let mut base = PathBuf::from(FILES_DIR.get().unwrap());
-    base.push(&path);
+    base.push(&get_folder_path(&mut tx, Some(folder_id)).await?);
 
     fs::create_dir(&base).map_err(|e| {
         ApiResponse::fail(
@@ -186,33 +167,10 @@ pub async fn delete_folder(
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
-    if !auth.admin {
-        let modify = sqlx::query_scalar!(
-            "SELECT modify FROM permissions WHERE user_id = $1 AND folder_id = $2",
-            auth.user_id,
-            data.id
-        )
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
-
-        if !modify.is_some_and(|v| v) {
-            return Err(ApiResponse::fail(
-                Status::Forbidden,
-                "no permissions modify this folder",
-                None,
-            ));
-        }
-    }
-
-    let path = sqlx::query_scalar!("SELECT * FROM get_folder_path($1)", data.id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
-        .unwrap_or_default();
+    check_permission(&mut tx, &auth, Some(data.id), PermissionKind::Modify).await?;
 
     let mut base = PathBuf::from(FILES_DIR.get().unwrap());
-    base.push(&path);
+    base.push(&get_folder_path(&mut tx, Some(data.id)).await?);
 
     sqlx::query!("DELETE FROM folders WHERE id = $1", data.id,)
         .execute(&mut *tx)
@@ -255,30 +213,8 @@ pub async fn edit_folder(
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
-    if !auth.admin {
-        let modify = sqlx::query_scalar!(
-            "SELECT modify FROM permissions WHERE user_id = $1 AND folder_id = $2",
-            auth.user_id,
-            data.id
-        )
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
-
-        if !modify.is_some_and(|v| v) {
-            return Err(ApiResponse::fail(
-                Status::Forbidden,
-                "no permissions modify this folder",
-                None,
-            ));
-        }
-    }
-
-    let old_path = sqlx::query_scalar!("SELECT * FROM get_folder_path($1)", data.id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
-        .unwrap_or_default();
+    check_permission(&mut tx, &auth, Some(data.id), PermissionKind::Modify).await?;
+    let old_path = &get_folder_path(&mut tx, Some(data.id)).await?;
 
     let result = sqlx::query!(
         "UPDATE folders SET name = $1 WHERE id = $2",
@@ -436,24 +372,7 @@ pub async fn upload_file<'a>(
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
-    if !auth.admin {
-        let edit = sqlx::query_scalar!(
-            "SELECT edit FROM permissions WHERE user_id = $1 AND (($2::uuid IS NULL AND folder_id IS NULL) OR folder_id = $2)",
-            auth.user_id,
-            data.folder
-        )
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
-
-        if !edit.is_some_and(|v| v) {
-            return Err(ApiResponse::fail(
-                Status::Forbidden,
-                "no permissions to upload file",
-                None,
-            ));
-        }
-    }
+    check_permission(&mut tx, &auth, data.folder, PermissionKind::Edit).await?;
 
     let name = data
         .file
@@ -634,4 +553,132 @@ pub async fn get_files(
     .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
     Ok(Json(result))
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RemoveFile {
+    pub id: Uuid,
+}
+
+#[delete("/file", format = "json", data = "<data>")]
+pub async fn delete_file(
+    data: Json<RemoveFile>,
+    pool: &State<PgPool>,
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> ApiResult {
+    let auth = auth?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    let file = sqlx::query!("SELECT folder_id, name FROM files WHERE id = $1", data.id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    check_permission(&mut tx, &auth, file.folder_id, PermissionKind::Edit).await?;
+
+    let mut base = PathBuf::from(FILES_DIR.get().unwrap());
+    base.push(&get_folder_path(&mut tx, file.folder_id).await?);
+    base.push(&file.name);
+
+    sqlx::query!("DELETE FROM files WHERE id = $1", data.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    fs::remove_file(base).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "error while deleting file",
+            Some(&e),
+        )
+    })?;
+
+    Ok((
+        Status::NoContent,
+        ApiResponse::success_with("deleted folder"),
+    ))
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EditFile {
+    pub id: Uuid,
+    pub name: String,
+}
+
+#[patch("/file", format = "json", data = "<data>")]
+pub async fn edit_file(
+    data: Json<EditFile>,
+    pool: &State<PgPool>,
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> ApiResult {
+    let auth = auth?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    let file = sqlx::query!("SELECT folder_id, name FROM files WHERE id = $1", data.id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    check_permission(&mut tx, &auth, file.folder_id, PermissionKind::Edit).await?;
+    check_name(&data.name)?;
+
+    let result = sqlx::query!(
+        "UPDATE files SET name = $1 WHERE id = $2",
+        data.name,
+        data.id,
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::Database(db_err) = &e
+            && db_err.is_unique_violation()
+        {
+            ApiResponse::fail(Status::Conflict, "file with this name already exists", None)
+        } else {
+            ApiResponse::fail(Status::InternalServerError, "database error", Some(&e))
+        }
+    })?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiResponse::fail(
+            Status::NotFound,
+            "folder not found",
+            None,
+        ));
+    }
+
+    let mut old_path = PathBuf::from(FILES_DIR.get().unwrap());
+    old_path.push(&get_folder_path(&mut tx, file.folder_id).await?);
+    old_path.push(&file.name);
+
+    let mut new_path = PathBuf::from(FILES_DIR.get().unwrap());
+    new_path.push(&get_folder_path(&mut tx, file.folder_id).await?);
+    new_path.push(&data.name);
+
+    fs::rename(&old_path, &new_path).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "error while renaming folder",
+            Some(&e),
+        )
+    })?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok((
+        Status::NoContent,
+        ApiResponse::success_with("renamed folder"),
+    ))
 }
