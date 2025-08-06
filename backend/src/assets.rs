@@ -21,9 +21,8 @@ async fn get_folder_path(tx: &mut PgConnection, id: Option<Uuid>) -> ApiResult<S
 fn remove_last_path(s: &str) -> String {
     Path::new(s)
         .parent()
-        .and_then(|p| p.to_str())
-        .unwrap_or("")
-        .trim_end_matches('/')
+        .unwrap_or(Path::new(""))
+        .to_string_lossy()
         .to_string()
 }
 
@@ -63,6 +62,18 @@ fn check_name(name: &str) -> ApiResult<()> {
         ));
     }
     Ok(())
+}
+
+fn get_ord(order: Option<String>) -> &'static str {
+    match order.as_deref() {
+        Some("name_asc") => "f.name ASC",
+        Some("name_desc") => "f.name DESC",
+        Some("created_asc") => "f.created_at ASC",
+        Some("created_desc") => "f.created_at DESC",
+        Some("updated_asc") => "f.updated_at ASC",
+        Some("updated_desc") => "f.updated_at DESC",
+        None | _ => "f.name ASC",
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -177,10 +188,6 @@ pub async fn delete_folder(
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
-    tx.commit()
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
-
     fs::remove_dir_all(base).map_err(|e| {
         ApiResponse::fail(
             Status::InternalServerError,
@@ -188,6 +195,10 @@ pub async fn delete_folder(
             Some(&e),
         )
     })?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
     Ok((
         Status::NoContent,
@@ -304,46 +315,44 @@ pub async fn get_all_folders(
     Ok(Json(result))
 }
 
-#[get("/folders?<parent>")]
+#[get("/folders?<parent>&<order>")]
 pub async fn get_folders(
     parent: Option<Uuid>,
+    order: Option<String>,
     pool: &State<PgPool>,
     auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
 ) -> ApiResult<Json<Vec<Folder>>> {
     let auth = auth?;
+    let order_sql = get_ord(order);
 
     let result = if auth.admin {
-        sqlx::query_as!(
-            Folder,
+        sqlx::query_as::<_, Folder>(&format!(
             r#"
             SELECT f.id, f.parent_id, f.name, f.owner_id, f.created_at, f.updated_at
             FROM folders f
-            WHERE (
-                ($1::uuid IS NULL AND f.parent_id IS NULL)
-                OR f.parent_id = $1
-            )
+            WHERE f.parent_id IS NOT DISTINCT FROM $1
+            ORDER BY {}
         "#,
-            parent
-        )
+            order_sql
+        ))
+        .bind(parent)
         .fetch_all(pool.inner())
         .await
     } else {
-        sqlx::query_as!(
-            Folder,
+        sqlx::query_as::<_, Folder>(&format!(
             r#"
             SELECT f.id, f.parent_id, f.name, f.owner_id, f.created_at, f.updated_at
             FROM folders f
             JOIN permissions p ON p.folder_id = f.id
             WHERE p.user_id = $1
               AND p.read = TRUE
-              AND (
-                ($2::uuid IS NULL AND f.parent_id IS NULL)
-                OR f.parent_id = $2
-              )
+              AND f.parent_id IS NOT DISTINCT FROM $2
+            ORDER BY {}
         "#,
-            auth.user_id,
-            parent
-        )
+            order_sql
+        ))
+        .bind(auth.user_id)
+        .bind(parent)
         .fetch_all(pool.inner())
         .await
     }
@@ -507,46 +516,44 @@ pub async fn get_all_files(
     Ok(Json(result))
 }
 
-#[get("/files?<parent>")]
+#[get("/files?<parent>&<order>")]
 pub async fn get_files(
     parent: Option<Uuid>,
+    order: Option<String>,
     pool: &State<PgPool>,
     auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
 ) -> ApiResult<Json<Vec<File>>> {
     let auth = auth?;
+    let order_sql = get_ord(order);
 
     let result = if auth.admin {
-        sqlx::query_as!(
-            File,
+        sqlx::query_as::<_, File>(&format!(
             r#"
             SELECT f.id, f.folder_id, f.owner_id, f.name, f.size, f.created_at, f.updated_at
             FROM files f
-            WHERE (
-                ($1::uuid IS NULL AND f.folder_id IS NULL)
-                OR f.folder_id = $1
-            )
+            WHERE f.folder_id IS NOT DISTINCT FROM $1
+            ORDER BY {}
         "#,
-            parent
-        )
+            order_sql
+        ))
+        .bind(parent)
         .fetch_all(pool.inner())
         .await
     } else {
-        sqlx::query_as!(
-            File,
+        sqlx::query_as::<_, File>(&format!(
             r#"
             SELECT f.id, f.folder_id, f.owner_id, f.name, f.size, f.created_at, f.updated_at
             FROM files f
             JOIN permissions p ON p.folder_id = f.folder_id
             WHERE p.user_id = $1
               AND p.read = TRUE
-              AND (
-                ($2::uuid IS NULL AND f.folder_id IS NULL)
-                OR f.folder_id = $2
-              )
+              AND f.folder_id IS NOT DISTINCT FROM $2
+            ORDER BY {}
         "#,
-            auth.user_id,
-            parent
-        )
+            order_sql
+        ))
+        .bind(auth.user_id)
+        .bind(parent)
         .fetch_all(pool.inner())
         .await
     }
