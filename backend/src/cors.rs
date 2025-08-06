@@ -17,7 +17,7 @@ impl Fairing for Cors {
         response.set_header(Header::new("Access-Control-Allow-Origin", "http://localhost:7002"));
         response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
         response.set_header(Header::new("Access-Control-Allow-Headers", "content-type"));
-        response.set_header(Header::new("Access-Control-Allow-Methods", "GET, POST, OPTIONS"));
+        response.set_header(Header::new("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE, PATCH"));
 
         if request.method() == Method::Options {
             response.set_status(Status::Ok);
