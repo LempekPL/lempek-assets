@@ -47,6 +47,9 @@ nav {
   display: flex;
   flex-direction: row;
   align-items: center;
+  //position: sticky;
+  //top: 1rem;
+  //z-index: 999;
 
   .title {
     display: flex;
