@@ -15,7 +15,7 @@
     </g>
     <g display="none">
       <path transform="translate(-15.681 -3.9424)" x="27.127758" y="17.495396" width="157.10732" height="50.96468" ry="25.48234" d="m52.61 17.495h106.14c14.117 0 25.482 11.365 25.482 25.482 0 14.117-11.365 25.482-25.482 25.482h-106.14c-14.117 0-25.482-11.365-25.482-25.482 0-14.117 11.365-25.482 25.482-25.482zm0 50.965h106.14c14.117 0 25.482 11.365 25.482 25.482 0 14.117-11.365 25.482-25.482 25.482h-106.14c-14.117 0-25.482-11.365-25.482-25.482 0-14.117 11.365-25.482 25.482-25.482zm0 50.965h106.14c14.117 0 25.482 11.365 25.482 25.482 0 14.117-11.365 25.482-25.482 25.482h-106.14c-14.117 0-25.482-11.365-25.482-25.482 0-14.117 11.365-25.482 25.482-25.482z" display="inline" fill="#262626" stroke="#65bf40" stroke-width="10" style="mix-blend-mode:normal"/>
-      <g fill="#69e621" font-family="sans-serif" text-anchor="middle">
+      <g font-family="sans-serif" text-anchor="middle">
         <text x="87.890625" y="107.0625" display="inline" font-size="48px" text-align="center" xml:space="preserve"><tspan x="87.890625" y="107.0625" fill="#69e621" font-family="'Roboto Mono'" font-size="48px" font-weight="bold">LMPK</tspan></text>
         <text x="89.453125" y="154.40756" display="inline" font-size="37.333px" text-align="center" xml:space="preserve"><tspan x="89.453133" y="154.40756" fill="#69e621" font-family="'Roboto Mono'" font-size="37.333px" font-weight="bold">SERVER</tspan></text>
         <text x="90" y="54.162247" display="inline" font-size="42.667px" text-align="center" xml:space="preserve"><tspan x="89.999992" y="54.162247" fill="#69e621" font-family="'Roboto Mono'" font-size="42.667px" font-weight="bold">ASSET</tspan></text>
