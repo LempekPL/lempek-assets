@@ -279,7 +279,7 @@ pub async fn change_password(
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
-    Ok((Status::NoContent, ApiResponse::success()))
+    Ok((Status::Ok, ApiResponse::success()))
 }
 
 #[rocket::async_trait]
