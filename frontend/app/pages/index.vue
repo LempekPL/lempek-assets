@@ -51,6 +51,10 @@ function openAddFolderBox() {
 function enterFolder(folder: Folder) {
   router.push({path: '/', query: {parent: folder.id}});
 }
+
+useHead({
+  title: "Assets",
+})
 </script>
 
 <template>

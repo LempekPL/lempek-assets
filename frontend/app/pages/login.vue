@@ -18,6 +18,10 @@ const handleLogin = async () => {
     loading.value = false
   }
 }
+
+useHead({
+  title: "Assets - Logowanie"
+})
 </script>
 
 <template>

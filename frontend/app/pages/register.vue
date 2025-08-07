@@ -21,6 +21,9 @@ const handleLogin = async () => {
     loading.value = false
   }
 }
+useHead({
+  title: "Assets - Rejestrowanie"
+})
 </script>
 
 <template>
