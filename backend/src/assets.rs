@@ -5,7 +5,7 @@ use crate::perms::{ApiResult, PermissionKind, check_permission};
 use rocket::form::Form;
 use rocket::{State, fs::TempFile, http::Status, post, serde::json::Json};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgConnection, PgPool};
+use sqlx::{Acquire, PgConnection, PgPool};
 use std::path::Path;
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
@@ -358,6 +358,34 @@ pub async fn get_folders(
     }
     .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
+    Ok(Json(result))
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct UuidPath {
+    id: Option<Uuid>,
+    name: Option<String>,
+}
+#[get("/folder/path?<id>")]
+pub async fn get_folders_path(
+    id: Option<Uuid>,
+    pool: &State<PgPool>,
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> ApiResult<Json<Vec<UuidPath>>> {
+    let auth = auth?;
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    if !auth.admin {
+        check_permission(&mut tx, &auth, id, PermissionKind::Read).await?;
+    }
+    let result = sqlx::query_as!(UuidPath, "SELECT * FROM get_folder_uuid_path($1)", id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
     Ok(Json(result))
 }
 

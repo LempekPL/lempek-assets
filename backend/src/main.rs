@@ -49,6 +49,7 @@ async fn rocket() -> _ {
                 assets::delete_folder,
                 assets::edit_folder,
                 assets::get_all_folders,
+                assets::get_folders_path,
                 assets::get_folders,
                 assets::upload_file,
                 assets::get_all_files,

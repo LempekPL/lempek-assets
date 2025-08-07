@@ -34,7 +34,7 @@ pub async fn check_permission<'a>(
     }
 
     let query = format!(
-        "SELECT {} FROM permissions WHERE user_id = $1 AND (($2::uuid IS NULL AND folder_id IS NULL) OR folder_id = $2)",
+        "SELECT {} FROM permissions WHERE user_id = $1 AND folder_id IS NOT DISTINCT FROM $2",
         permission.as_str()
     );
 
