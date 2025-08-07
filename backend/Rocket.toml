@@ -2,4 +2,4 @@
 port = 7001
 address = "0.0.0.0"
 temp_dir = "../tmp"
-limits = { form = "5GiB", file = "5GiB" }
+limits = { form = "5GiB", file = "5GiB", data-form = "5 GiB" }
