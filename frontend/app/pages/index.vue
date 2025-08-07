@@ -74,6 +74,14 @@ function handleSuccess() {
 useHead({
   title: "Assets",
 })
+
+const folderPathSpliced = computed(() => {
+  if (folderPath.value && folderPath.value.length > 7) {
+    return folderPath.value.slice(folderPath.value.length - 7);
+  } else {
+    return folderPath.value || [];
+  }
+})
 </script>
 
 <template>
@@ -81,8 +89,15 @@ useHead({
     <div>
       <div class="path-text">
         <RouterLink :to="{ path: '/' }">/</RouterLink>
-        <template v-for="pathItem in folderPath" :key="pathItem.id">
-          <RouterLink :to="{ path: '/', query: { parent: pathItem.id } }">{{ pathItem.name }}</RouterLink>
+        <template v-for="(pathItem, idx) in folderPathSpliced" :key="pathItem.id">
+          <RouterLink :to="{ path: '/', query: { parent: pathItem.id } }">
+            <template v-if="(folderPath?.length ?? 0) > 6 && idx === 0">
+              ...
+            </template>
+            <template v-else-if="(folderPath?.length ?? 0) > 6 && idx > 0 || (folderPath?.length ?? 0) <= 6">
+              {{ pathItem.name }}
+            </template>
+          </RouterLink>
           <RouterLink :to="{ path: '/', query: { parent: pathItem.id } }">/</RouterLink>
         </template>
       </div>
@@ -190,6 +205,10 @@ useHead({
       background: none;
       border: none;
       font-size: 1rem;
+      max-width: 10ch;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      white-space: nowrap;
 
       &:hover {
         text-decoration: underline;
