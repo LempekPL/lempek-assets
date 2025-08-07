@@ -131,17 +131,20 @@ pub async fn login(
     }
 }
 
-#[post("/register", format = "json", data = "<data>")]
+// create new user only available for admin
+#[post("/register/new", format = "json", data = "<data>")]
 pub async fn register(
     data: Json<LoginData>,
     pool: &State<PgPool>,
     cookies: &CookieJar<'_>,
     auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
 ) -> Result<Json<ApiResponse>, (Status, Json<ApiResponse>)> {
-    if auth.is_ok() {
+    let auth = auth?;
+
+    if !auth.admin {
         return Err(ApiResponse::fail(
-            Status::Conflict,
-            "you are already logged in",
+            Status::Forbidden,
+            "you need to be admin to create new user",
             None,
         ));
     }
@@ -158,23 +161,6 @@ pub async fn register(
         .begin()
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
-
-    let existing_user = sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM users WHERE login = $1)",
-        data.login
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
-    .unwrap_or(false);
-
-    if existing_user {
-        return Err(ApiResponse::fail(
-            Status::Conflict,
-            "user already registered",
-            None,
-        ));
-    }
 
     let hashed_password = hash(&data.password, DEFAULT_COST).map_err(|e| {
         ApiResponse::fail(
@@ -197,7 +183,6 @@ pub async fn register(
         .execute(&mut *tx)
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
-    set_cookie(cookies, user)?;
     tx.commit()
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
@@ -277,10 +262,12 @@ impl<'r> FromRequest<'r> for AuthUser {
                     ))
                 }
             }
-            Err(e) if e.kind() == &jsonwebtoken::errors::ErrorKind::InvalidToken => Outcome::Error((
-                Status::Unauthorized,
-                ApiResponse::fail(Status::Unauthorized, "you are not authenticated", None),
-            )),
+            Err(e) if e.kind() == &jsonwebtoken::errors::ErrorKind::InvalidToken => {
+                Outcome::Error((
+                    Status::Unauthorized,
+                    ApiResponse::fail(Status::Unauthorized, "you are not authenticated", None),
+                ))
+            }
             Err(e) => Outcome::Error((
                 Status::Unauthorized,
                 ApiResponse::fail(Status::Unauthorized, "authentication error", Some(&e)),

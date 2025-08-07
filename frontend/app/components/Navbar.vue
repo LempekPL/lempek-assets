@@ -27,9 +27,6 @@ const logout = async () => {
           <nuxt-link href="/login">
             <PartButton>Zaloguj się</PartButton>
           </nuxt-link>
-          <nuxt-link href="/register">
-            <PartButton>Zarejestruj się</PartButton>
-          </nuxt-link>
         </template>
       </template>
     </div>
