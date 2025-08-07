@@ -119,7 +119,7 @@ pub async fn login(
         )
     })? {
         set_cookie(cookies, user)?;
-        Ok((Status::NoContent, ApiResponse::success()))
+        Ok((Status::Ok, ApiResponse::success()))
     } else {
         Err(ApiResponse::fail(
             Status::BadRequest,
@@ -184,7 +184,7 @@ pub async fn register(
     tx.commit()
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
-    Ok((Status::NoContent, ApiResponse::success()))
+    Ok((Status::Ok, ApiResponse::success()))
 }
 
 #[post("/logout")]
