@@ -1,4 +1,5 @@
 use crate::models::{ApiResponse, User};
+use crate::perms::ApiResult;
 use bcrypt::{DEFAULT_COST, hash, verify};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -9,10 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-fn set_cookie(
-    cookies: &CookieJar<'_>,
-    user: impl Into<AuthUser>,
-) -> Result<(), (Status, Json<ApiResponse>)> {
+fn set_cookie(cookies: &CookieJar<'_>, user: impl Into<AuthUser>) -> ApiResult<()> {
     let jwt_secret = std::env::var("JWT_SECRET").map_err(|e| {
         ApiResponse::fail(
             Status::InternalServerError,
@@ -75,7 +73,7 @@ pub async fn login(
     pool: &State<PgPool>,
     cookies: &CookieJar<'_>,
     auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
-) -> Result<Json<ApiResponse>, (Status, Json<ApiResponse>)> {
+) -> ApiResult {
     if auth.is_ok() {
         return Err(ApiResponse::fail(
             Status::Conflict,
@@ -121,7 +119,7 @@ pub async fn login(
         )
     })? {
         set_cookie(cookies, user)?;
-        Ok(ApiResponse::success())
+        Ok((Status::NoContent, ApiResponse::success()))
     } else {
         Err(ApiResponse::fail(
             Status::BadRequest,
@@ -138,7 +136,7 @@ pub async fn register(
     pool: &State<PgPool>,
     cookies: &CookieJar<'_>,
     auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
-) -> Result<Json<ApiResponse>, (Status, Json<ApiResponse>)> {
+) -> ApiResult {
     let auth = auth?;
 
     if !auth.admin {
@@ -186,7 +184,7 @@ pub async fn register(
     tx.commit()
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
-    Ok(ApiResponse::success())
+    Ok((Status::NoContent, ApiResponse::success()))
 }
 
 #[post("/logout")]
@@ -205,13 +203,83 @@ pub struct UserData {
 #[get("/user")]
 pub async fn get_user(
     auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
-) -> Result<Json<UserData>, (Status, Json<ApiResponse>)> {
+) -> ApiResult<Json<UserData>> {
     let auth = auth?;
     Ok(Json(UserData {
         user_id: auth.user_id,
         login: auth.login,
         admin: auth.admin,
     }))
+}
+
+#[derive(Deserialize)]
+pub struct ChangePasswordData {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[post("/user/change_password", format = "json", data = "<data>")]
+pub async fn change_password(
+    data: Json<ChangePasswordData>,
+    pool: &State<PgPool>,
+    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+) -> ApiResult {
+    let auth = auth?;
+
+    if data.current_password.is_empty() || data.new_password.len() < 8 {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "password must have at least 8 characters",
+            None,
+        ));
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    let user = sqlx::query_as!(User, "SELECT * FROM users WHERE id = $1", auth.user_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    if !verify(&data.current_password, &user.password).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "internal server error",
+            Some(&e),
+        )
+    })? {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "wrong current password",
+            None,
+        ));
+    }
+
+    let hashed = hash(&data.new_password, DEFAULT_COST).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "internal server error",
+            Some(&e),
+        )
+    })?;
+
+    sqlx::query!(
+        "UPDATE users SET password = $1 WHERE id = $2",
+        hashed,
+        auth.user_id
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok((Status::NoContent, ApiResponse::success()))
 }
 
 #[rocket::async_trait]

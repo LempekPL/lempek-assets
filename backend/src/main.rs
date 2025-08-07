@@ -45,6 +45,7 @@ async fn rocket() -> _ {
                 auth::register,
                 auth::logout,
                 auth::get_user,
+                auth::change_password,
                 assets::create_folder,
                 assets::delete_folder,
                 assets::edit_folder,
