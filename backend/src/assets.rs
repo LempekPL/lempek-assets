@@ -301,7 +301,7 @@ pub async fn get_all_folders(
             r#"
         SELECT f.id, f.parent_id, f.name, f.owner_id, f.created_at, f.updated_at
         FROM folders f
-        JOIN permissions p ON p.folder_id = f.id
+        JOIN permissions p ON p.folder_id IS NOT DISTINCT FROM f.id
         WHERE p.user_id = $1
           AND p.read = TRUE
         "#,
@@ -343,7 +343,7 @@ pub async fn get_folders(
             r#"
             SELECT f.id, f.parent_id, f.name, f.owner_id, f.created_at, f.updated_at
             FROM folders f
-            JOIN permissions p ON p.folder_id = f.id
+            JOIN permissions p ON p.folder_id IS NOT DISTINCT FROM f.id
             WHERE p.user_id = $1
               AND p.read = TRUE
               AND f.parent_id IS NOT DISTINCT FROM $2
@@ -420,7 +420,7 @@ pub async fn upload_file<'a>(
     check_name(&name)?;
 
     let overwrite = data.overwrite.unwrap_or(false);
-    let exist = sqlx::query_scalar!("SELECT EXISTS (SELECT 1 FROM files WHERE name = $1 AND (($2::uuid IS NULL AND folder_id IS NULL) OR folder_id = $2))", name, data.folder)
+    let exist = sqlx::query_scalar!("SELECT EXISTS (SELECT 1 FROM files WHERE name = $1 AND folder_id IS NOT DISTINCT FROM $2)", name, data.folder)
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
@@ -530,7 +530,7 @@ pub async fn get_all_files(
             r#"
             SELECT f.id, f.folder_id, f.owner_id, f.name, f.size, f.created_at, f.updated_at
             FROM files f
-            JOIN permissions p ON p.folder_id = f.folder_id
+            JOIN permissions p ON p.folder_id IS NOT DISTINCT FROM f.folder_id
             WHERE p.user_id = $1
               AND p.read = TRUE
         "#,
@@ -572,7 +572,7 @@ pub async fn get_files(
             r#"
             SELECT f.id, f.folder_id, f.owner_id, f.name, f.size, f.created_at, f.updated_at
             FROM files f
-            JOIN permissions p ON p.folder_id = f.folder_id
+            JOIN permissions p ON p.folder_id IS NOT DISTINCT FROM f.folder_id
             WHERE p.user_id = $1
               AND p.read = TRUE
               AND f.folder_id IS NOT DISTINCT FROM $2

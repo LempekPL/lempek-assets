@@ -86,7 +86,7 @@ impl ApiResponse {
     }
 }
 
-#[derive(Serialize, Deserialize, FromRow)]
+#[derive(Serialize, Deserialize, FromRow, Debug)]
 pub struct User {
     pub id: Uuid,
     pub login: String,
@@ -96,7 +96,7 @@ pub struct User {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(FromRow, Serialize)]
+#[derive(FromRow, Serialize, Debug)]
 pub struct Folder {
     pub id: Uuid,
     pub parent_id: Option<Uuid>,
@@ -106,7 +106,7 @@ pub struct Folder {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(FromRow, Serialize)]
+ #[derive(FromRow, Serialize, Debug)]
 pub struct File {
     pub id: Uuid,
     pub folder_id: Option<Uuid>,
@@ -117,7 +117,7 @@ pub struct File {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(FromRow)]
+#[derive(FromRow, Debug)]
 pub struct Permission {
     pub id: Uuid,
     pub folder_id: Option<Uuid>,
