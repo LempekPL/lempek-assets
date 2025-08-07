@@ -10,7 +10,7 @@ defineProps<{
 
 <template>
   <transition name="fade">
-    <div class="bg" v-if="show" @click.self="onCancel">
+    <div class="bg" v-show="show" @click.self="onCancel">
       <form class="big-box-menu" @submit.prevent="onSubmit">
         <slot/>
         <div class="bottom">
@@ -31,7 +31,7 @@ defineProps<{
 .err {
   position: fixed;
   left: 50%;
-  top: calc(50% + 8rem);
+  top: calc(50% + 12rem);
   transform: translate(-50%, -50%);
 }
 

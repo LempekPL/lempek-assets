@@ -1,7 +1,7 @@
 <!--suppress HtmlUnknownTarget -->
 <script setup lang="ts">
 import PartMiniMenu from "~/components/part/MiniMenu.vue";
-import type {Folder, UuidName} from "~~/types/api";
+import type {Folder, File, UuidName} from "~~/types/api";
 import {useRouter} from 'vue-router';
 
 const router = useRouter();
@@ -16,6 +16,18 @@ const {
   error,
   refresh: refreshFolders
 } = await useFetch<Folder[]>(() => config.public.apiBase + "/folders?parent=" + (parentId.value ?? ''), {
+  method: 'GET',
+  credentials: 'include',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  watch: [parentId]
+});
+
+const {
+  data: files,
+  refresh: refreshFiles
+} = await useFetch<File[]>(() => config.public.apiBase + "/files?parent=" + (parentId.value ?? ''), {
   method: 'GET',
   credentials: 'include',
   headers: {
@@ -62,6 +74,7 @@ onBeforeUnmount(() => {
 const addFolderBox = ref(false);
 const deleteFolderBox = ref(false);
 const editFolderBox = ref(false);
+const addFileBox = ref(false);
 
 function enterFolder(id: string | null) {
   router.push({path: '/', query: {parent: id}});
@@ -71,7 +84,9 @@ function handleSuccess() {
   addFolderBox.value = false;
   deleteFolderBox.value = false;
   editFolderBox.value = false;
+  addFileBox.value = false;
   refreshFolders();
+  refreshFiles();
 }
 
 useHead({
@@ -123,8 +138,13 @@ const folderPathSpliced = computed(() => {
       <div class="items-grid">
         <div v-for="folder in folders" :key="folder.id" class="item"
              @contextmenu.prevent.stop="openMenuBox($event, folder)" @dblclick="enterFolder(folder.id)">
-          <Icon name="fa6-solid:folder"/>
+          <Icon name="material-symbols:folder-rounded"/>
           <p>{{ folder.name }}</p>
+        </div>
+        <div v-for="file in files" :key="file.id" class="item"
+             @contextmenu.prevent.stop="openMenuBox($event, file)" @dblclick="enterFolder(file.id)">
+          <Icon name="material-symbols:unknown-document-rounded"/>
+          <p>{{ file.name }}</p>
         </div>
       </div>
     </div>
@@ -132,16 +152,20 @@ const folderPathSpliced = computed(() => {
 
   <PartMiniMenu ref="menuRef" class="menu-part">
     <button v-if="selectedFolder" @click="() => {menuRef?.close(); editFolderBox = true}">
-      <Icon name="fa6-solid:folder-plus"/>
+      <Icon name="material-symbols:folder-managed"/>
       <span>Edytuj nazwę</span>
     </button>
     <button v-if="selectedFolder" @click="() => {menuRef?.close(); deleteFolderBox = true}">
-      <Icon name="fa6-solid:folder-plus"/>
+      <Icon name="material-symbols:folder-delete-rounded"/>
       <span>Usuń folder</span>
     </button>
     <div v-if="selectedFolder"/>
+    <button @click="() => {menuRef?.close(); addFileBox = true}">
+      <Icon name="material-symbols:file-copy-rounded"/>
+      <span>Prześlij plik</span>
+    </button>
     <button @click="() => {menuRef?.close(); addFolderBox = true}">
-      <Icon name="fa6-solid:folder-plus"/>
+      <Icon name="material-symbols:create-new-folder-rounded"/>
       <span>Nowy folder</span>
     </button>
   </PartMiniMenu>
@@ -165,6 +189,12 @@ const folderPathSpliced = computed(() => {
       @success="handleSuccess"
       :folder-id="selectedFolder?.id ?? ''"
       :folder-name="selectedFolder?.name ?? ''"/>
+
+  <BoxFileUpload
+      :show="addFileBox"
+      @close="addFileBox = false"
+      @success="handleSuccess"
+      :parent-id="parentId || undefined"/>
 </template>
 
 <style scoped lang="scss">

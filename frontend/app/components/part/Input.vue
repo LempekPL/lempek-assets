@@ -1,31 +1,12 @@
-<script setup>
-
-const props = defineProps({
-  id: {
-    type: String,
-    required: true
-  },
-  name: {
-    type: String,
-    required: true
-  },
-  disabled: {
-    type: Boolean,
-    required: false
-  },
-  modelValue: {
-    type: [String, Number],
-    default: ''
-  },
-  type: {
-    type: String,
-    default: 'text'
-  },
-  autocomplete: {
-    type: String,
-    required: false
-  },
-});
+<script setup lang="ts">
+defineProps<{
+  id: string
+  name: string
+  disabled?: boolean
+  modelValue: any
+  type?: string
+  autocomplete?: string
+}>();
 
 const emit = defineEmits(['update:modelValue']);
 </script>
@@ -34,16 +15,16 @@ const emit = defineEmits(['update:modelValue']);
   <div class="input-text">
     <input
         :type="type"
-        :id="props.id"
-        :name="props.id"
-        :placeholder="props.id"
+        :id="id"
+        :name="id"
+        :placeholder="id"
         :disabled="disabled"
-        :autocomplete="props.autocomplete"
+        :autocomplete="autocomplete"
+        :model-value="modelValue"
         :value="modelValue"
         @input="$emit('update:modelValue', $event.target.value)"
-        required
-    />
-    <label :for="props.id">{{ name }}</label>
+        required/>
+    <label :for="id">{{ name }}</label>
   </div>
 </template>
 

@@ -4,14 +4,14 @@ import type {ApiResponse} from "~~/types/api";
 const login = ref('')
 const password = ref('')
 const loading = ref(false)
-const errorMessage = ref<ApiResponse | null >(null);
+const message = ref<ApiResponse | null>(null);
 const auth = useAuthStore();
 
 const handleLogin = async () => {
   try {
     loading.value = true;
-    errorMessage.value = await auth.login({login: login.value, password: password.value});
-    if (errorMessage.value.success) {
+    message.value = await auth.login({login: login.value, password: password.value});
+    if (message.value.success) {
       await navigateTo('/')
     }
   } finally {
@@ -31,7 +31,7 @@ useHead({
       <h1 v-else>Zaloguj się</h1>
       <PartInput id="login" autocomplete="username" name="Login" v-model="login" :disabled="loading"/>
       <PartInput type="password" id="password" autocomplete="current-password" name="Hasło" v-model="password" :disabled="loading"/>
-      <p v-if="errorMessage && !errorMessage.success" class="err-text">{{ errorMessage.detail }}</p>
+      <p v-if="message && !message.success" class="err-text">{{ message.detail }}</p>
       <PartButton type="submit" :disabled="loading">Zaloguj się</PartButton>
     </form>
   </main>
