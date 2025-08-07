@@ -17,7 +17,7 @@ const logout = async () => {
       <p v-if="auth.loading">Ładowanie...</p>
       <template v-else>
         <template v-if="auth.isAuthenticated">
-          <a href="/">
+          <a href="/" tabindex="-1">
             <PartButton>Assety</PartButton>
           </a>
           <PartButton @click="logout">Wyloguj się</PartButton>
