@@ -46,6 +46,8 @@ defineProps<{
 .big-box-menu {
   background-color: var(--box-color);
   box-shadow: #000 .125rem .125rem 1rem .25rem;
+  width: 30%;
+  min-width: 20rem;
   padding: 2rem;
   border-radius: 2rem;
   position: absolute;

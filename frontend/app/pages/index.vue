@@ -7,6 +7,7 @@ import {useRouter} from 'vue-router';
 const router = useRouter();
 const route = useRoute();
 const parentId = computed(() => route.query.parent as string | null);
+const orderInfo = computed(() => route.query.order as string | null);
 const config = useRuntimeConfig();
 
 const {
@@ -60,6 +61,7 @@ onBeforeUnmount(() => {
 
 const addFolderBox = ref(false);
 const deleteFolderBox = ref(false);
+const editFolderBox = ref(false);
 
 function enterFolder(id: string | null) {
   router.push({path: '/', query: {parent: id}});
@@ -68,6 +70,7 @@ function enterFolder(id: string | null) {
 function handleSuccess() {
   addFolderBox.value = false;
   deleteFolderBox.value = false;
+  editFolderBox.value = false;
   refreshFolders();
 }
 
@@ -128,7 +131,7 @@ const folderPathSpliced = computed(() => {
   </transition>
 
   <PartMiniMenu ref="menuRef" class="menu-part">
-    <button v-if="selectedFolder">
+    <button v-if="selectedFolder" @click="() => {menuRef?.close(); editFolderBox = true}">
       <Icon name="fa6-solid:folder-plus"/>
       <span>Edytuj nazwę</span>
     </button>
@@ -143,18 +146,25 @@ const folderPathSpliced = computed(() => {
     </button>
   </PartMiniMenu>
 
-  <FolderBoxAdd
+  <BoxFolderAdd
       :show="addFolderBox"
       @close="addFolderBox = false"
       @success="handleSuccess"
       :parent-id="parentId || undefined"/>
 
-  <FolderBoxDelete
+  <BoxFolderDelete
       :show="deleteFolderBox"
       @close="deleteFolderBox = false"
       @success="handleSuccess"
       :folder-id="selectedFolder?.id ?? ''"
       :folder-name="selectedFolder?.name"/>
+
+  <BoxFolderEdit
+      :show="editFolderBox"
+      @close="editFolderBox = false"
+      @success="handleSuccess"
+      :folder-id="selectedFolder?.id ?? ''"
+      :folder-name="selectedFolder?.name ?? ''"/>
 </template>
 
 <style scoped lang="scss">
