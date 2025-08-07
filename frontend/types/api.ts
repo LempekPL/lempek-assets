@@ -22,3 +22,8 @@ export type ApiResponse = {
     err_id: string | null;
     detail: string | null;
 }
+
+export type UuidName = {
+    id: string;
+    name: string;
+}

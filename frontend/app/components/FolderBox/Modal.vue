@@ -1,27 +1,27 @@
 <script setup lang="ts">
-const errorMessage = {success: false, detail: 'problem ze stworzeniem foldera'}
-
-const props = defineProps({
-  show: {
-    type: Boolean,
-    required: true
-  },
-});
-const emit = defineEmits(['close']);
+defineProps<{
+  show: boolean
+  loading: boolean
+  errorMessage?: string
+  onSubmit: () => void
+  onCancel: () => void
+}>();
 </script>
 
 <template>
   <transition name="fade">
-    <div class="bg" v-if="show" @click.self="emit('close')">
-      <div class="big-box-menu">
-        <PartInput id="name" name="Nazwa" style="width: 100%"/>
+    <div class="bg" v-if="show" @click.self="onCancel">
+      <form class="big-box-menu" @submit.prevent="onSubmit">
+        <slot/>
         <div class="bottom">
-          <PartButton type="submit" style="background: #982727" @click.self="emit('close')">Anuluj</PartButton>
-          <PartButton type="submit">Dodaj folder</PartButton>
+          <PartButton type="button" @click="onCancel" :disabled="loading">Anuluj</PartButton>
+          <slot name="action">
+            <PartButton type="submit" :disabled="loading">OK</PartButton>
+          </slot>
         </div>
-      </div>
-      <div class="err">
-        <p v-if="errorMessage && !errorMessage.success" class="err-text">{{ errorMessage.detail }}</p>
+      </form>
+      <div class="err" v-if="errorMessage">
+        <p class="err-text">{{ errorMessage }}</p>
       </div>
     </div>
   </transition>
@@ -29,7 +29,7 @@ const emit = defineEmits(['close']);
 
 <style scoped>
 .err {
-  position: absolute;
+  position: fixed;
   left: 50%;
   top: calc(50% + 8rem);
   transform: translate(-50%, -50%);
@@ -45,6 +45,7 @@ const emit = defineEmits(['close']);
 
 .big-box-menu {
   background-color: var(--box-color);
+  box-shadow: #000 .125rem .125rem 1rem .25rem;
   padding: 2rem;
   border-radius: 2rem;
   position: absolute;
@@ -69,7 +70,7 @@ const emit = defineEmits(['close']);
   height: 100%;
   backdrop-filter: blur(10px);
 
-  position: absolute;
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
@@ -78,11 +79,13 @@ const emit = defineEmits(['close']);
 }
 
 .fade-enter-active, .fade-leave-active {
-  transition: opacity 0.23s cubic-bezier(.42,.13,.4,1.13);
+  transition: opacity 0.23s cubic-bezier(.42, .13, .4, 1.13);
 }
+
 .fade-enter-from, .fade-leave-to {
   opacity: 0;
 }
+
 .fade-enter-to, .fade-leave-from {
   opacity: 1;
 }
