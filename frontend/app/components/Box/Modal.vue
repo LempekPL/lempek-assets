@@ -14,7 +14,9 @@ defineProps<{
       <form class="big-box-menu" @submit.prevent="onSubmit">
         <slot/>
         <div class="bottom">
-          <PartButton type="button" @click="onCancel" :disabled="loading">Anuluj</PartButton>
+          <slot name="cancel">
+            <PartButton type="button" @click="onCancel" :disabled="loading">Anuluj</PartButton>
+          </slot>
           <slot name="action">
             <PartButton type="submit" :disabled="loading">OK</PartButton>
           </slot>
