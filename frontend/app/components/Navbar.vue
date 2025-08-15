@@ -74,4 +74,16 @@ nav {
     flex-direction: row;
   }
 }
+
+@media (max-width: 700px) {
+  nav {
+    border-radius: 0;
+  }
+}
+
+@media (max-width: 500px) {
+  .title p {
+    display: none;
+  }
+}
 </style>
