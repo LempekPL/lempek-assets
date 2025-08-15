@@ -17,7 +17,7 @@ const emit = defineEmits(['update:modelValue']);
         :type="type"
         :id="id"
         :name="id"
-        :placeholder="id"
+        placeholder=" "
         :disabled="disabled"
         :autocomplete="autocomplete"
         :model-value="modelValue"
@@ -47,6 +47,7 @@ div {
     transition-timing-function: cubic-bezier(.4, 0, .2, 1);
   }
 
+  /* autoprefixer: ignore next */
   &:focus-within > label, > input:not(:placeholder-shown) + label {
     position: absolute;
     background: var(--box-color);
@@ -70,11 +71,6 @@ div {
 
     &:disabled {
       cursor: not-allowed;
-    }
-
-    &::placeholder {
-      color: var(--box-color);
-      user-select: none;
     }
 
     &:is(:-webkit-autofill, :autofill) {
