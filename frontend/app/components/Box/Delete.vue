@@ -1,23 +1,31 @@
 <script setup lang="ts">
 const props = defineProps<{
   show: boolean
-  folderId: string
-  folderName?: string
+  type?: 'folder' | 'file'
+  id: string
+  name?: string
 }>()
-const emit = defineEmits(['close','success'])
+const emit = defineEmits(['close', 'success'])
 const loading = ref(false)
 const errorMessage = ref('')
 const config = useRuntimeConfig()
+const properType = computed(() => {
+  if (props.type === 'file') {
+    return 'plik';
+  } else {
+    return 'folder';
+  }
+})
 
 async function onSubmit() {
   loading.value = true
   errorMessage.value = ''
   try {
-    await $fetch(config.public.apiBase + '/folder', {
+    await $fetch(config.public.apiBase + '/' + props.type, {
       method: 'DELETE',
       credentials: 'include',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ id: props.folderId })
+      body: JSON.stringify({id: props.id})
     })
     emit('success')
   } catch (err: any) {
@@ -42,16 +50,17 @@ function onCancel() {
       :onSubmit="onSubmit"
       :onCancel="onCancel"
   >
-    <p>Czy jesteś pewny że chcesz usunąć folder?</p>
-    <p class="folder-name">{{ folderName }}</p>
+    <p>Czy jesteś pewny że chcesz usunąć ten {{ properType }}?</p>
+    <p class="item-name">{{ name }}</p>
     <template #action>
-      <PartButton type="submit" :disabled="loading" style="background: var(--red-button-color)">Usuń folder</PartButton>
+      <PartButton type="submit" :disabled="loading" style="background: var(--red-button-color)">Usuń {{ properType }}
+      </PartButton>
     </template>
   </BoxModal>
 </template>
 
 <style scoped>
-.folder-name {
+.item-name {
   font-family: "JetBrains Mono", monospace, monospace;
   backdrop-filter: brightness(0.85);
 }

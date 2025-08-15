@@ -48,19 +48,22 @@ const {
 });
 
 const menuRef = ref<InstanceType<typeof PartMiniMenu> | null>(null);
-const selectedFolder = ref<Folder | null>(null);
+const selectedItem = ref<Folder | File | null>(null);
+const selectedType = ref<'folder' | 'file' | null>(null);
 
-function openMenuBox(event: MouseEvent, folder: Folder | null) {
+function openMenuBox(event: MouseEvent, item: Folder | File | null, type: 'file' | 'folder' | null) {
   event.preventDefault();
   menuRef.value?.open(event.clientX, event.clientY);
-  selectedFolder.value = folder;
+  selectedItem.value = item;
+  selectedType.value = type;
 }
 
 function handleClickOutside(event: MouseEvent) {
   if (!menuRef.value?.isOpen()) return;
   if (!menuRef.value.contains(event.target as Node)) {
     menuRef.value.close();
-    selectedFolder.value = null;
+    selectedItem.value = null;
+    selectedType.value = null;
   }
 }
 
@@ -90,7 +93,7 @@ function handleSuccess() {
 }
 
 useHead({
-  title: "Assets",
+  title: "Assety",
 })
 
 const folderPathSpliced = computed(() => {
@@ -128,7 +131,7 @@ const folderPathSpliced = computed(() => {
       Error: {{ error.message }}
     </div>
 
-    <div v-else-if="pending" class="loading-folders">
+    <div v-else-if="pending" class="default-box">
       <div>
         <p>Ładowanie folderów...</p>
       </div>
@@ -147,19 +150,36 @@ const folderPathSpliced = computed(() => {
           <p>{{ file.name }}</p>
         </div>
       </div>
+
+      <div v-show="folders?.length === 0 && files?.length === 0" class="default-box">
+        <div>
+          <p>Brak przedmiotów w tym folderze</p>
+        </div>
+      </div>
     </div>
   </transition>
 
   <PartMiniMenu ref="menuRef" class="menu-part">
-    <button v-if="selectedFolder" @click="() => {menuRef?.close(); editFolderBox = true}">
+    <button v-if="selectedType == 'folder'" @click="() => {menuRef?.close(); editFolderBox = true}">
       <Icon name="material-symbols:folder-managed"/>
       <span>Edytuj nazwę</span>
     </button>
-    <button v-if="selectedFolder" @click="() => {menuRef?.close(); deleteFolderBox = true}">
+    <button v-if="selectedType == 'folder'" @click="() => {menuRef?.close(); deleteFolderBox = true}">
       <Icon name="material-symbols:folder-delete-rounded"/>
       <span>Usuń folder</span>
     </button>
-    <div v-if="selectedFolder"/>
+    <div v-if="selectedType == 'folder'"/>
+
+    <button v-if="selectedType == 'file'" @click="() => {menuRef?.close(); editFolderBox = true}">
+      <Icon name="material-symbols:edit-square-rounded"/>
+      <span>Edytuj nazwę</span>
+    </button>
+    <button v-if="selectedType == 'file'" @click="() => {menuRef?.close(); deleteFolderBox = true}">
+      <Icon name="material-symbols:scan-delete-rounded"/>
+      <span>Usuń plik</span>
+    </button>
+    <div v-if="selectedType == 'file'"/>
+
     <button @click="() => {menuRef?.close(); addFileBox = true}">
       <Icon name="material-symbols:file-copy-rounded"/>
       <span>Prześlij plik</span>
@@ -176,19 +196,21 @@ const folderPathSpliced = computed(() => {
       @success="handleSuccess"
       :parent-id="parentId || undefined"/>
 
-  <BoxFolderDelete
+  <BoxDelete
       :show="deleteFolderBox"
       @close="deleteFolderBox = false"
       @success="handleSuccess"
-      :folder-id="selectedFolder?.id ?? ''"
-      :folder-name="selectedFolder?.name"/>
+      :type="selectedType ?? undefined"
+      :id="selectedItem?.id ?? ''"
+      :name="selectedItem?.name"/>
 
-  <BoxFolderEdit
+  <BoxEdit
       :show="editFolderBox"
       @close="editFolderBox = false"
       @success="handleSuccess"
-      :folder-id="selectedFolder?.id ?? ''"
-      :folder-name="selectedFolder?.name ?? ''"/>
+      :type="selectedType ?? undefined"
+      :id="selectedItem?.id ?? ''"
+      :name="selectedItem?.name ?? ''"/>
 
   <BoxFileUpload
       :show="addFileBox"
@@ -213,9 +235,8 @@ const folderPathSpliced = computed(() => {
   display: block;
 }
 
-
-.loading-folders {
-  padding-top: var(--body-padding);
+.default-box {
+  padding-top: 1rem;
   justify-items: center;
 
   div {
@@ -226,7 +247,7 @@ const folderPathSpliced = computed(() => {
 }
 
 .option-box {
-  padding-top: var(--body-padding);
+  padding-top: 1rem;
   width: 100%;
   justify-items: center;
 
@@ -306,11 +327,10 @@ const folderPathSpliced = computed(() => {
 }
 
 .items-grid {
-  padding-top: var(--body-padding);
+  padding-top: 1rem;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
   gap: 1rem;
-
 
   .item {
     user-select: none;

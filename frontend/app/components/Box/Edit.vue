@@ -1,8 +1,9 @@
 <script setup lang="ts">
 const props = defineProps<{
   show: boolean
-  folderId: string
-  folderName: string
+  id: string
+  type?: 'folder' | 'file'
+  name: string
 }>()
 const emit = defineEmits(['close','success'])
 
@@ -11,7 +12,7 @@ const errorMessage = ref('')
 const newFolderName = ref('')
 
 watch(() => props.show, (show) => {
-  if (show) newFolderName.value = props.folderName;
+  if (show) newFolderName.value = props.name;
 });
 
 const config = useRuntimeConfig()
@@ -20,11 +21,11 @@ async function onSubmit() {
   loading.value = true
   errorMessage.value = ''
   try {
-    await $fetch(config.public.apiBase + '/folder', {
+    await $fetch(config.public.apiBase + '/'+props.type, {
       method: 'PATCH',
       credentials: 'include',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ id: props.folderId, name: newFolderName.value.trim() })
+      body: JSON.stringify({ id: props.id, name: newFolderName.value.trim() })
     })
     newFolderName.value = ''
     emit('success')
