@@ -137,6 +137,7 @@ pub async fn create_folder(
     base.push(&get_folder_path(&mut tx, Some(folder_id)).await?);
 
     fs::create_dir(&base).map_err(|e| {
+        dbg!(&e);
         ApiResponse::fail(
             Status::InternalServerError,
             "error while creating folder",
@@ -183,10 +184,13 @@ pub async fn delete_folder(
     let mut base = PathBuf::from(FILES_DIR.get().unwrap());
     base.push(&get_folder_path(&mut tx, Some(data.id)).await?);
 
-    sqlx::query!("DELETE FROM folders WHERE id = $1", data.id,)
+    let res = sqlx::query!("DELETE FROM folders WHERE id = $1", data.id,)
         .execute(&mut *tx)
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    if res.rows_affected() == 0 {
+        return Err(ApiResponse::fail(Status::NotFound, "folder not found", None));
+    }
 
     fs::remove_dir_all(base).map_err(|e| {
         ApiResponse::fail(
@@ -618,10 +622,13 @@ pub async fn delete_file(
     base.push(&get_folder_path(&mut tx, file.folder_id).await?);
     base.push(&file.name);
 
-    sqlx::query!("DELETE FROM files WHERE id = $1", data.id)
+    let res = sqlx::query!("DELETE FROM files WHERE id = $1", data.id)
         .execute(&mut *tx)
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    if res.rows_affected() == 0 {
+        return Err(ApiResponse::fail(Status::NotFound, "file not found", None));
+    }
 
     tx.commit()
         .await
@@ -637,7 +644,7 @@ pub async fn delete_file(
 
     Ok((
         Status::NoContent,
-        ApiResponse::success_with("deleted folder"),
+        ApiResponse::success_with("deleted file"),
     ))
 }
 
