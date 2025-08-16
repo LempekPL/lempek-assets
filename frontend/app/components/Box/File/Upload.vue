@@ -9,6 +9,7 @@ const loading = ref(false)
 const errorMessage = ref('')
 const file = ref<File | null>(null);
 const fileName = ref('');
+const dragOver = ref(false);
 
 function changeFile(event: Event) {
   const target = event.target as HTMLInputElement;
@@ -17,6 +18,8 @@ function changeFile(event: Event) {
     if (!fileName.value && file.value) {
       fileName.value = file.value.name;
     }
+  } else {
+    fileName.value = '';
   }
 }
 
@@ -94,6 +97,25 @@ function onCancel() {
   file.value = null;
   emit('close')
 }
+
+function handleDrop(ev: DragEvent) {
+  ev.preventDefault();
+  dragOver.value = false;
+  if (ev.dataTransfer?.files && ev.dataTransfer.files.length > 0) {
+    file.value = ev.dataTransfer.files.item(0);
+    if (file.value) {
+      fileName.value = file.value.name;
+    }
+  }
+}
+
+function handleDragOver(ev: DragEvent) {
+  ev.preventDefault();
+  dragOver.value = true;
+}
+function handleDragLeave() {
+  dragOver.value = false;
+}
 </script>
 
 <template>
@@ -105,12 +127,27 @@ function onCancel() {
       :onCancel="onCancel"
   >
     <PartInput id="name" name="Nazwa" v-model="fileName" style="width: 100%;"/>
-    <input id="file" name="Plik" type="file" @change="changeFile" style="width: 100%;" />
+    <div class="file-input-container">
+      <input type="file" id="file-input" name="Plik" @change="changeFile"/>
+      <label for="file-input" class="file-label"
+             :class="{'dragging': dragOver}"
+             @dragover="handleDragOver"
+             @dragenter="handleDragOver"
+             @dragleave="handleDragLeave"
+             @drop="handleDrop"
+             tabindex="0">
+        <Icon class="file-icon" name="material-symbols:upload-2-rounded"/>
+        <span class="file-text">{{ fileName || 'Wybierz plik' }}</span>
+      </label>
+    </div>
     <div v-if="loading" class="progress-bar">
-      <PartProgress :value="progress" :max="100" :text="progress.toFixed(1)+'%'" bg-color="#aaa" color="var(--accent-color)"/>
+      <PartProgress :value="progress" :max="100" :text="progress.toFixed(1)+'%'" bg-color="#aaa"
+                    color="var(--accent-color)"/>
     </div>
     <template #cancel>
-      <PartButton type="button" @click="onCancel" :style="{ backgroundColor: loading ? 'var(--red-button-color)' : '' }">Anuluj</PartButton>
+      <PartButton type="button" @click="onCancel"
+                  :style="{ backgroundColor: loading ? 'var(--red-button-color)' : '' }">Anuluj
+      </PartButton>
     </template>
     <template #action>
       <PartButton type="submit" :disabled="loading" style="background: var(--green-button-color)">
@@ -134,5 +171,46 @@ function onCancel() {
   > * {
     border-radius: 1rem;
   }
+}
+
+.file-input-container {
+  input {
+    display: none;
+  }
+
+  .file-label {
+    cursor: pointer;
+    border-radius: 1rem;
+    border: 2px solid var(--accent-color);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 12rem;
+    width: 12rem;
+    padding: 1rem;
+
+    .file-icon {
+      font-size: 5rem;
+    }
+
+    .file-text {
+      max-width: 100%;
+      white-space: normal;
+      word-break: break-word;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+
+    &:hover {
+      background-color: color-mix(in oklab, var(--accent-color), transparent 80%);
+    }
+  }
+}
+
+.dragging {
+  background-color: color-mix(in oklab, var(--accent-color), transparent 50%);
+  box-shadow: 0 4px 26px var(--accent-color);
+  filter: brightness(1.12);
 }
 </style>
