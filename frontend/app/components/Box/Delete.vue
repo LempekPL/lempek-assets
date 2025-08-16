@@ -63,5 +63,10 @@ function onCancel() {
 .item-name {
   font-family: "JetBrains Mono", monospace, monospace;
   backdrop-filter: brightness(0.85);
+  max-width: 100%;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  text-wrap: nowrap;
 }
 </style>

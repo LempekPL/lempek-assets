@@ -73,6 +73,7 @@ defineProps<{
   width: 100%;
   height: 100%;
   backdrop-filter: blur(10px);
+  z-index: 99;
 
   position: fixed;
   top: 0;
