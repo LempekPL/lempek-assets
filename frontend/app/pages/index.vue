@@ -50,7 +50,7 @@ const menuRef = ref<InstanceType<typeof PartMiniMenu> | null>(null);
 const selectedItem = ref<Folder | File | null>(null);
 const selectedType = ref<'folder' | 'file' | null>(null);
 
-function openMenuBox(event: MouseEvent, item: Folder | File | null, type: 'file' | 'folder' | null) {
+function openMenuBox(event: MouseEvent, item: Folder | File | null = null, type: 'file' | 'folder' | null = null) {
   event.preventDefault();
   menuRef.value?.open(event.clientX, event.clientY);
   selectedItem.value = item;
@@ -172,7 +172,6 @@ watch(orderChoice, (val) => {
     </div>
   </div>
 
-
   <transition name="item" mode="out-in">
     <div v-if="error" class="error">
       Error: {{ error.message }}
@@ -185,14 +184,14 @@ watch(orderChoice, (val) => {
     </div>
 
     <div v-else-if="folders?.length === 0 && files?.length === 0"
-         @contextmenu.prevent="openMenuBox($event, null)"
+         @contextmenu.prevent="openMenuBox($event)"
          class="default-box">
       <div>
         <p>Brak przedmiotów w tym folderze</p>
       </div>
     </div>
 
-    <div v-else @contextmenu.prevent="openMenuBox($event, null)" class="main-box">
+    <div v-else @contextmenu.prevent="openMenuBox($event)" class="main-box">
       <div :class="viewType === 'grid' ? 'items-grid' : 'items-list'">
         <div v-for="folder in folders" :key="folder.id" class="item"
              @contextmenu.prevent.stop="openMenuBox($event, folder, 'folder')" @dblclick="enterFolder(folder.id)">
@@ -277,7 +276,7 @@ watch(orderChoice, (val) => {
   width: 100%;
   padding-top: 1rem;
   justify-items: center;
-  flex-grow: 1; // needed for menu
+  flex-grow: 1; // needed for context menu
 
   div {
     background: var(--box-color);
@@ -561,6 +560,9 @@ watch(orderChoice, (val) => {
   color: #dc3545;
 }
 
+.dragged {
+
+}
 
 .item-enter-active, .item-leave-active {
   transition: opacity 0.25s;
