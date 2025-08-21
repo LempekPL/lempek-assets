@@ -151,16 +151,16 @@ watch(orderChoice, (val) => {
                     :style="{fontWeight: orderChoice === 'name_desc' ? 'bold' : 'normal'}">Nazwa Z-A
             </button>
             <button @click="orderChoice = 'updated_asc'"
-                    :style="{fontWeight: orderChoice === 'updated_asc' ? 'bold' : 'normal'}">Data aktualizacji
+                    :style="{fontWeight: orderChoice === 'updated_asc' ? 'bold' : 'normal'}">Aktualizacja najstarsze
             </button>
             <button @click="orderChoice = 'updated_desc'"
-                    :style="{fontWeight: orderChoice === 'updated_desc' ? 'bold' : 'normal'}">Data aktualizacji
+                    :style="{fontWeight: orderChoice === 'updated_desc' ? 'bold' : 'normal'}">Aktualizacja najnowsze
             </button>
             <button @click="orderChoice = 'created_asc'"
-                    :style="{fontWeight: orderChoice === 'created_asc' ? 'bold' : 'normal'}">Data stworzenia
+                    :style="{fontWeight: orderChoice === 'created_asc' ? 'bold' : 'normal'}">Utworzenie najstarsze
             </button>
             <button @click="orderChoice = 'created_desc'"
-                    :style="{fontWeight: orderChoice === 'created_desc' ? 'bold' : 'normal'}">Data stworzenia
+                    :style="{fontWeight: orderChoice === 'created_desc' ? 'bold' : 'normal'}">Utworzenie najnowsze
             </button>
           </div>
         </transition>
