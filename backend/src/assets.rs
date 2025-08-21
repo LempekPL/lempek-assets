@@ -34,23 +34,36 @@ fn check_name(name: &str) -> ApiResult<()> {
         .chars()
         .any(|c| invalid_chars.contains(&c) || c.is_control())
     {
+        let invalid_string = invalid_chars
+            .iter()
+            .map(|c| format!("'{}'", c))
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(ApiResponse::fail(
             Status::Forbidden,
-            "You used illegal character in name\nList of illegal chars: '<', '>', ':', '\"', '/', '\\', '|', '?', '*', ',', ';', '=', '(', ')', '&', '#', '\''",
+            format!(
+                "You used illegal character in name.\nList of illegal chars: {}",
+                invalid_string
+            ),
             None,
         ));
     }
     let reserved_names = [
-        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "api", "login", "profile", "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+        "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
+        "LPT7", "LPT8", "LPT9",
     ];
     if reserved_names
         .iter()
         .any(|&res| name.eq_ignore_ascii_case(res))
     {
+        let reserved_string = reserved_names.join("', '");
         return Err(ApiResponse::fail(
             Status::Forbidden,
-            "You used illegal name\nList of illegal names: 'CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'",
+            format!(
+                "You used illegal name.\nList of illegal names: '{}'",
+                reserved_string
+            ),
             None,
         ));
     }
@@ -189,7 +202,11 @@ pub async fn delete_folder(
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
     if res.rows_affected() == 0 {
-        return Err(ApiResponse::fail(Status::NotFound, "folder not found", None));
+        return Err(ApiResponse::fail(
+            Status::NotFound,
+            "folder not found",
+            None,
+        ));
     }
 
     fs::remove_dir_all(base).map_err(|e| {
@@ -229,6 +246,7 @@ pub async fn edit_folder(
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
     check_permission(&mut tx, &auth, Some(data.id), PermissionKind::Modify).await?;
+    check_name(&data.name)?;
     let old_path = &get_folder_path(&mut tx, Some(data.id)).await?;
 
     let result = sqlx::query!(
@@ -424,11 +442,15 @@ pub async fn upload_file<'a>(
     check_name(&name)?;
 
     let overwrite = data.overwrite.unwrap_or(false);
-    let exist = sqlx::query_scalar!("SELECT EXISTS (SELECT 1 FROM files WHERE name = $1 AND folder_id IS NOT DISTINCT FROM $2)", name, data.folder)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
-        .unwrap_or(false);
+    let exist = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM files WHERE name = $1 AND folder_id IS NOT DISTINCT FROM $2)",
+        name,
+        data.folder
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
+    .unwrap_or(false);
     if exist && !overwrite {
         return Err(ApiResponse::fail(
             Status::Conflict,
@@ -642,10 +664,7 @@ pub async fn delete_file(
         )
     })?;
 
-    Ok((
-        Status::NoContent,
-        ApiResponse::success_with("deleted file"),
-    ))
+    Ok((Status::NoContent, ApiResponse::success_with("deleted file")))
 }
 
 #[derive(Serialize, Deserialize)]

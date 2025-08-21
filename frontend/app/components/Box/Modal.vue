@@ -41,8 +41,9 @@ defineProps<{
   border: 2px solid white;
   background: #930000;
   padding: .5rem;
-  border-radius: 9999rem;
+  border-radius: 1rem;
   color: white;
+  white-space: pre-wrap;
 }
 
 .big-box-menu {
