@@ -90,6 +90,7 @@ impl ApiResponse {
 pub struct User {
     pub id: Uuid,
     pub login: String,
+    pub username: String,
     pub password: String,
     pub admin: bool,
     pub created_at: DateTime<Utc>,

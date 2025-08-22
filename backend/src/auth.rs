@@ -46,6 +46,7 @@ fn set_cookie(cookies: &CookieJar<'_>, user: impl Into<AuthUser>) -> ApiResult<(
 pub struct AuthUser {
     pub user_id: Uuid,
     pub login: String,
+    pub username: String,
     pub admin: bool,
     pub exp: usize,
 }
@@ -55,8 +56,9 @@ impl From<User> for AuthUser {
         AuthUser {
             user_id: user.id,
             login: user.login,
+            username: user.username,
             admin: user.admin,
-            exp: (Utc::now() + Duration::hours(5)).timestamp() as usize,
+            exp: (Utc::now() + Duration::hours(500)).timestamp() as usize,
         }
     }
 }
@@ -197,6 +199,7 @@ pub fn logout(cookies: &CookieJar<'_>) -> Json<ApiResponse> {
 pub struct UserData {
     user_id: Uuid,
     login: String,
+    username: String,
     admin: bool,
 }
 
@@ -208,6 +211,7 @@ pub async fn get_user(
     Ok(Json(UserData {
         user_id: auth.user_id,
         login: auth.login,
+        username: auth.username,
         admin: auth.admin,
     }))
 }

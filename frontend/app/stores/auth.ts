@@ -47,15 +47,6 @@ export const useAuthStore = defineStore('auth', {
             }
         },
 
-        async register(credentials: { login: string; password: string }): Promise<ApiResponse> {
-            const config = useRuntimeConfig();
-            return await $fetch(config.public.apiBase + '/register', {
-                method: 'POST',
-                credentials: 'include',
-                body: credentials
-            })
-        },
-
         async logout() {
             const config = useRuntimeConfig();
             await $fetch(config.public.apiBase + '/logout', {
