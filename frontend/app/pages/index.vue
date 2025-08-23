@@ -102,10 +102,6 @@ function handleSuccess() {
   refreshFiles();
 }
 
-useHead({
-  title: "Assety",
-})
-
 const folderPathSpliced = computed(() => {
   if (folderPath.value && folderPath.value.length > 7) {
     return folderPath.value.slice(folderPath.value.length - 7);
@@ -114,12 +110,20 @@ const folderPathSpliced = computed(() => {
   }
 })
 
+const head_title = computed(() => {
+  return "AS - "+(folderPathSpliced.value[0]?.name ?? "/");
+})
+
 watch(viewType, (val) => {
   localStorage.setItem(ORDER_STORAGE, val);
 });
 watch(orderChoice, (val) => {
   localStorage.setItem(ORDER_STORAGE, val);
 });
+
+useHead({
+  title: head_title
+})
 </script>
 
 <template>
