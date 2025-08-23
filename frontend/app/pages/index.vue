@@ -13,8 +13,9 @@ const viewType = ref<'grid' | 'list'>('grid');
 type OrderTypes = 'name_asc' | 'name_desc' | 'created_asc' | 'created_desc' | 'updated_asc' | 'updated_desc';
 const orderChoice = ref<OrderTypes>(orderInfo.value as OrderTypes);
 const showOrderMenu = ref<boolean>(false);
-const orderMenuRef = ref<any | null>(null);
-const openOrderMenuRef = ref<any | null>(null);
+const orderMenuRef = ref<HTMLElement | null>(null);
+const openOrderMenuRef = ref<HTMLElement | null>(null);
+
 
 const VALID_ORDERS: OrderTypes[] = [
   'name_asc', 'name_desc',

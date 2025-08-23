@@ -1,5 +1,12 @@
+<script setup lang="ts">
+import { defineExpose, ref } from "vue";
+
+const button = ref<HTMLButtonElement | null>(null);
+defineExpose({ button });
+</script>
+
 <template>
-  <button>
+  <button ref="button">
     <slot/>
   </button>
 </template>
