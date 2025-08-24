@@ -19,18 +19,8 @@ npm i
 npm run build
 
 echo "Copying frontend files..."
-cp ./.output/nitro.json ../lempek-assets/frontend
-cp -r ./.output/public ../lempek-assets/frontend
-# move everyting but the node_modules
-mkdir ../lempek-assets/frontend/server
-cp -r ./.output/server/chunks ../lempek-assets/frontend/server
-cp ./.output/server/index.mjs ../lempek-assets/frontend/server
-cp ./.output/server/index.mjs.map ../lempek-assets/frontend/server
-cp ./.output/server/package.json ../lempek-assets/frontend/server
-
-cd ../lempek-assets/frontend/server
-npm i
-cd ../../..
+cp -r ./.output/* ../lempek-assets/frontend
+cd ..
 
 echo "Creating runner and init for frontend..."
 cat > ./lempek-assets/frontend/start.sh <<'EOF'
@@ -75,5 +65,7 @@ chmod +x ./lempek-assets/run.sh
 
 echo "Zipping lempek-assets.tar.gz..."
 tar -czf lempek-assets.tar.gz lempek-assets
+
+rm -fr ./lempek-assets
 
 echo "Done!"
