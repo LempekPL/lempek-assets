@@ -38,7 +38,7 @@ async fn rocket() -> _ {
         .manage(connect_db().await)
         .attach(Cors)
         .mount(
-            "/",
+            "/api",
             routes![
                 cors::options_handler,
                 auth::login,

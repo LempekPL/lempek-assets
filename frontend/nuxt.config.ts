@@ -9,10 +9,11 @@ export default defineNuxtConfig({
   modules: ['@nuxt/icon', '@nuxt/image', '@pinia/nuxt'],
   runtimeConfig: {
     public: {
-      apiBase: 'http://localhost:7001'
+      apiBase: 'http://localhost:7001/api'
     }
   },
   devServer: {
-    port: 7002
+    port: 7002,
+    ip: '0.0.0.0',
   }
 })
