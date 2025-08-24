@@ -16,6 +16,9 @@ cp ./Rocket.toml ./example.env ./target/release/lempek-assets-backend ../lempek-
 echo "Building frontend..."
 cd ../frontend
 npm i
+cat > .env <<'EOF'
+BACKEND_URL=https://as.lempek.dev
+EOF
 npm run build
 
 echo "Copying frontend files..."
@@ -25,14 +28,6 @@ cd ..
 echo "Creating runner and init for frontend..."
 cat > ./lempek-assets/frontend/start.sh <<'EOF'
 #!/bin/bash
-
-if [ ! -d "node_modules" ]; then
-  echo "node_modules not found, installing..."
-  cd ./server
-  npm i
-  cd ..
-fi
-
 export PORT=7002
 node ./server/index.mjs
 EOF
@@ -44,12 +39,16 @@ cat > ./lempek-assets/run.sh << 'EOF'
 set -e
 
 echo "Starting backend..."
-./backend/lempek-assets-backend &
+cd ./backend
+./lempek-assets-backend &
 BACKEND_PID=$!
+cd ..
 
 echo "Starting frontend..."
-./frontend/start.sh &
+cd ./frontend
+./start.sh &
 FRONTEND_PID=$!
+cd ..
 
 echo "Backend PID: $BACKEND_PID"
 echo "Frontend PID: $FRONTEND_PID"
