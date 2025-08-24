@@ -14,16 +14,9 @@ impl Fairing for Cors {
             kind: Kind::Response,
         }
     }
-
+    
     async fn on_response<'r>(&self, request: &'r Request<'_>, response: &mut Response<'r>) {
-        if let Some(origin) = request.headers().get_one("Origin") {
-            let allowed = env::var("ALLOWED_ORIGINS").unwrap_or_default();
-            let allowed_origins: Vec<&str> = allowed.split(",").collect();
-
-            if allowed_origins.contains(&origin) {
-                response.set_header(Header::new("Access-Control-Allow-Origin", origin));
-            }
-        }
+        response.set_header(Header::new("Access-Control-Allow-Origin", env::var("ALLOWED_ORIGIN").unwrap_or_default()));
         response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
         response.set_header(Header::new("Access-Control-Allow-Headers", "content-type"));
         response.set_header(Header::new(

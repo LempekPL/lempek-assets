@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM get_folder_path($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "get_folder_path",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6bd9244734b32e195859c842661ca8f80888aeb221159999bf97d3693f6653da"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM files WHERE name = $1 AND (($2::uuid IS NULL AND folder_id IS NULL) OR folder_id = $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eba66ba9a8f3be4e1f37aaea39385eebf04f3735a71474e1d38226c05bd17c70"
+}
