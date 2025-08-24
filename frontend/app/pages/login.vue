@@ -20,7 +20,7 @@ const handleLogin = async () => {
 }
 
 useHead({
-  title: "Assets - Logowanie"
+  title: "AS - Logowanie"
 })
 </script>
 
@@ -30,24 +30,17 @@ useHead({
       <h1 v-if="loading">Logowanie...</h1>
       <h1 v-else>Zaloguj się</h1>
       <PartInput id="login" autocomplete="username" name="Login" v-model="login" :disabled="loading"/>
-      <PartInput type="password" id="password" autocomplete="current-password" name="Hasło" v-model="password" :disabled="loading"/>
-      <p v-if="message && !message.success" class="err-text">{{ message.detail }}</p>
+      <PartInput type="password" id="password" autocomplete="current-password" name="Hasło" v-model="password"
+                 :disabled="loading"/>
+      <BoxError v-if="message && !message.success" :message="message.detail"/>
       <PartButton type="submit" :disabled="loading">Zaloguj się</PartButton>
     </form>
   </main>
 </template>
 
 <style lang="scss" scoped>
-.err-text {
-  border: 2px solid white;
-  background: #930000;
-  padding: .5rem;
-  border-radius: 9999rem;
-  color: white;
-}
-
 main {
-  padding-top: 10rem;
+  padding-top: 8rem;
 
   form {
     background: var(--box-color);
@@ -56,7 +49,7 @@ main {
     flex-direction: column;
     align-self: center;
     align-items: center;
-    gap: 2rem;
+    gap: 1.5rem;
     border-radius: 2rem;
     padding: 2rem;
   }

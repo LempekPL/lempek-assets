@@ -291,7 +291,6 @@ useHead({
 }
 
 .option-box {
-  padding-top: 1rem;
   width: 100%;
   justify-items: center;
   display: grid;
@@ -483,7 +482,6 @@ useHead({
 }
 
 .items-grid {
-  padding-top: 1rem;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
   gap: 1rem;
@@ -523,7 +521,6 @@ useHead({
 
 .items-list {
   user-select: none;
-  padding-top: 1rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -559,6 +556,7 @@ useHead({
   position: relative;
   width: 100%;
   flex: 1;
+  padding: 1rem;
 }
 
 .error {

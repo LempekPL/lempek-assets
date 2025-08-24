@@ -6,6 +6,7 @@ defineProps<{
   modelValue: any
   type?: string
   autocomplete?: string
+  required?: 'required' | 'not'
 }>();
 
 const emit = defineEmits(['update:modelValue']);
@@ -14,16 +15,16 @@ const emit = defineEmits(['update:modelValue']);
 <template>
   <div class="input-text">
     <input
-        :type="type"
+        :type="type ?? 'text'"
         :id="id"
-        :name="id"
+        :name="name"
         placeholder=" "
         :disabled="disabled"
         :autocomplete="autocomplete"
         :model-value="modelValue"
         :value="modelValue"
         @input="$emit('update:modelValue', $event.target.value)"
-        required/>
+        :required="required === 'required'"/>
     <label :for="id">{{ name }}</label>
   </div>
 </template>
@@ -33,8 +34,10 @@ div {
   position: relative;
   z-index: 1;
   width: 80%;
-  border: 2px solid var(--accent-color);
+  outline: 1px solid var(--button-color);
   border-radius: 99999rem;
+  transition: 100ms;
+  transition-timing-function: cubic-bezier(.4, 0, .2, 1);
 
   > label {
     align-content: center;
@@ -45,6 +48,15 @@ div {
     color: var(--text-color);
     transition: 150ms;
     transition-timing-function: cubic-bezier(.4, 0, .2, 1);
+  }
+
+  &:focus-within > label {
+    color: var(--accent-color);
+  }
+
+  &:focus-within {
+    outline-color: var(--accent-color);
+    outline-width: 2px;
   }
 
   /* autoprefixer: ignore next */

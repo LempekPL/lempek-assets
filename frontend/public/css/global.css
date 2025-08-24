@@ -6,27 +6,23 @@
     box-sizing: border-box;
     font-family: "Roboto", sans-serif;
 
-    --body-padding: 1rem;
-    /*--header-height: 8rem;*/
-
     --background-color: #272b2f;
     --box-color: #455154;
     --button-color: #556467;
     --red-button-color: #943c3c;
     --green-button-color: #317920;
     --blue-button-color: #205179;
-    --accent-color: #2683b9;
+    --accent-color: #3692d2;
     --text-color: white;
 }
 
 body {
     background: var(--background-color);
-    padding: var(--body-padding);
     min-height: 100vh;
 }
 
 body div#__nuxt {
-    min-height: calc(100vh - var(--body-padding)*2);
+    min-height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -44,10 +40,4 @@ a {
 
 p, h1, h2, h3, h4, h5, h6, span, a {
     color: var(--text-color);
-}
-
-@media (max-width: 700px) {
-    * {
-        --body-padding: 0;
-    }
 }

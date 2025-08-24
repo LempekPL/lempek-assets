@@ -13,7 +13,7 @@ defineExpose({ button });
 
 <style scoped>
 button {
-  color: white;
+  color: var(--text-color);
   background: var(--button-color);
   border-radius: 99999rem;
   padding: 1rem;
