@@ -17,7 +17,7 @@ echo "Building frontend..."
 cd ../frontend
 npm i
 cat > .env <<'EOF'
-BACKEND_URL=https://as.lempek.dev
+BACKEND_URL=https://as.lempek.dev/api
 EOF
 npm run build
 

@@ -6,9 +6,9 @@
     "build": "nuxt build",
     "dev": "nuxt dev",
     "generate": "nuxt generate",
-    "preview": "nuxt preview",
+    "preview": "set PORT=7002 && nuxt preview",
     "postinstall": "nuxt prepare",
-    "start": "PORT=7002 node .output/server/index.mjs"
+    "start": "set PORT=7002 && node .output/server/index.mjs"
   },
   "dependencies": {
     "@nuxt/icon": "^1.15.0",
