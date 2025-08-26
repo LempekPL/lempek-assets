@@ -64,7 +64,7 @@ function handleClickOutside(event: MouseEvent) {
     selectedItem.value = null;
     selectedType.value = null;
   }
-  if (!openOrderMenuRef.value.contains(event.target as Node) && !orderMenuRef.value.contains(event.target as Node)) {
+  if (!openOrderMenuRef.value?.contains(event.target as Node) && !orderMenuRef.value?.contains(event.target as Node)) {
     showOrderMenu.value = false;
   }
 }
@@ -93,6 +93,12 @@ function enterFolder(id: string | null) {
   router.push({path: '/', query: {parent: id}});
 }
 
+async function enterFile(fileName: string) {
+  const response = await $fetch<UuidName[]>(`${config.public.apiBase}/folder/path?id=${parentId.value ?? ''}`, FETCH_OPTIONS as {});
+  const joinedPath = response.map(item => item.name).filter(Boolean).join("/");
+  window.location.href = config.public.filePath + joinedPath + "/" + fileName;
+}
+
 function handleSuccess() {
   addFolderBox.value = false;
   deleteFolderBox.value = false;
@@ -111,7 +117,7 @@ const folderPathSpliced = computed(() => {
 })
 
 const head_title = computed(() => {
-  return "AS - "+(folderPathSpliced.value[0]?.name ?? "/");
+  return "AS - " + (folderPathSpliced.value[0]?.name ?? "/");
 })
 
 watch(viewType, (val) => {
@@ -204,7 +210,7 @@ useHead({
           <p>{{ folder.name }}</p>
         </div>
         <div v-for="file in files" :key="file.id" class="item"
-             @contextmenu.prevent.stop="openMenuBox($event, file, 'file')" @dblclick="enterFolder(file.id)">
+             @contextmenu.prevent.stop="openMenuBox($event, file, 'file')" @dblclick="enterFile(file.name)">
           <Icon class="icon" name="material-symbols:unknown-document-rounded"/>
           <p>{{ file.name }}</p>
         </div>

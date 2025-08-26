@@ -18,6 +18,7 @@ cd ../frontend
 npm i
 cat > .env <<'EOF'
 BACKEND_URL=https://as.lempek.dev/api
+ASSETS_URL=https://a.lempek.dev/
 EOF
 npm run build
 
