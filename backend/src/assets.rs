@@ -508,6 +508,18 @@ pub async fn upload_file<'a>(
             Some(&e),
         ));
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o644);
+        std::fs::set_permissions(&base, perms).map_err(|e| {
+            return Err(ApiResponse::fail(
+                Status::InternalServerError,
+                "failed to change file permissions",
+                Some(&e),
+            ));
+        });
+    }
     let size: i64 = match fs::metadata(&base) {
         Ok(metadata) => metadata.len() as i64,
         Err(_) => 0,
