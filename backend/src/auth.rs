@@ -1,6 +1,6 @@
 use crate::models::{ApiResponse, User};
 use crate::perms::ApiResult;
-use crate::{get_access_time, get_refresh_time};
+use crate::{ACCESS_TOKEN_TIME, REFRESH_TOKEN_TIME};
 use bcrypt::{DEFAULT_COST, hash, verify};
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -44,6 +44,7 @@ fn create_access_cookie(cookies: &CookieJar<'_>, auth: &AuthUser) -> ApiResult<(
     Ok(())
 }
 
+// TODO: make cookies live as long as they need to
 async fn login_cookie(
     pool: &State<PgPool>,
     cookies: &CookieJar<'_>,
@@ -57,7 +58,7 @@ async fn login_cookie(
     let refresh_token = sqlx::query_scalar!(
         "INSERT INTO user_tokens (user_id, expires_at) VALUES ($1, $2) RETURNING refresh_token",
         auth.user_id,
-        get_refresh_time().naive_utc()
+        (Utc::now() + REFRESH_TOKEN_TIME).naive_utc()
     )
     .fetch_one(&mut *tx)
     .await
@@ -99,7 +100,7 @@ impl From<User> for AuthUser {
             login: user.login,
             username: user.username,
             admin: user.admin,
-            exp: get_access_time().timestamp() as usize,
+            exp: (Utc::now() + ACCESS_TOKEN_TIME).timestamp() as usize,
         }
     }
 }
@@ -377,7 +378,11 @@ impl<'r> FromRequest<'r> for AuthUser {
             ));
         };
         let key = DecodingKey::from_secret(jwt_secret.as_bytes());
-        match decode::<AuthUser>(&token, &key, &Validation::default()) {
+
+        // don't validate expiration date as I need it to properly decode claims to reuse it
+        let mut validation = Validation::default();
+        validation.validate_exp = false;
+        match decode::<AuthUser>(&token, &key, &validation) {
             Ok(token_data) => {
                 let now = Utc::now().timestamp() as usize;
                 if token_data.claims.exp > now {
@@ -404,8 +409,9 @@ impl<'r> FromRequest<'r> for AuthUser {
                         }
                     };
 
+                    // TODO: check if user has selected do not logout
                     if expires_at > Utc::now().naive_utc() {
-                        let auth = token_data.claims.renew(get_access_time().timestamp());
+                        let auth = token_data.claims.renew((Utc::now() + ACCESS_TOKEN_TIME).timestamp());
                         match create_access_cookie(cookies, &auth) {
                             Ok(_) => Outcome::Success(auth),
                             Err(e) => Outcome::Error((Status::InternalServerError, e)),

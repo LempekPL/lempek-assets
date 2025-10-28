@@ -15,7 +15,7 @@ pub struct ApiResponse {
 }
 
 impl ApiResponse {
-    fn print_err(loc: &Location, msg: &str, error: Option<&(dyn Error)>) -> String {
+    fn print_err(loc: &Location, msg: &str, error: Option<&dyn Error>) -> String {
         let err_id = Uuid::now_v7().to_string();
         if let Some(err) = error {
             log::error!(
