@@ -10,6 +10,7 @@ use rocket::request::{FromRequest, Outcome};
 use rocket::{Request, State, http::Status, post, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::str::FromStr;
 use uuid::Uuid;
 
 fn create_access_cookie(cookies: &CookieJar<'_>, auth: &AuthUser) -> ApiResult<()> {
@@ -346,9 +347,16 @@ impl<'r> FromRequest<'r> for AuthUser {
         let token = cookies
             .get_private("access_token")
             .map(|cookie| cookie.value().to_string());
-        let refresh_token = cookies
+        let Ok(refresh_token) = cookies
             .get_private("refresh_token")
-            .map(|cookie| cookie.value().to_string());
+            .map(|cookie| Uuid::from_str(cookie.value()))
+            .transpose()
+        else {
+            return Outcome::Error((
+                Status::InternalServerError,
+                ApiResponse::fail(Status::InternalServerError, "internal server error", None),
+            ));
+        };
 
         let (token, refresh_token) = match (token, refresh_token) {
             (Some(t), Some(u)) => (t, u),
@@ -376,8 +384,9 @@ impl<'r> FromRequest<'r> for AuthUser {
                     Outcome::Success(token_data.claims)
                 } else {
                     let expires_at = match sqlx::query_scalar!(
-                        "SELECT expires_at FROM user_tokens WHERE user_id = $1",
-                        token_data.claims.user_id
+                        "SELECT expires_at FROM user_tokens WHERE user_id = $1 AND refresh_token = $2 ORDER BY created_at DESC LIMIT 1",
+                        token_data.claims.user_id,
+                        refresh_token
                     )
                     .fetch_one(pool.inner())
                     .await
