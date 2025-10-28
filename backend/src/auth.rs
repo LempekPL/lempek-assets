@@ -1,8 +1,10 @@
 use crate::models::{ApiResponse, User};
 use crate::perms::ApiResult;
+use crate::{get_access_time, get_refresh_time};
 use bcrypt::{DEFAULT_COST, hash, verify};
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use rocket::http::private::cookie::Expiration;
 use rocket::http::{Cookie, CookieJar, SameSite};
 use rocket::request::{FromRequest, Outcome};
 use rocket::{Request, State, http::Status, post, serde::json::Json};
@@ -10,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-fn set_cookie(cookies: &CookieJar<'_>, user: impl Into<AuthUser>) -> ApiResult<()> {
+fn create_access_cookie(cookies: &CookieJar<'_>, auth: &AuthUser) -> ApiResult<()> {
     let jwt_secret = std::env::var("JWT_SECRET").map_err(|e| {
         ApiResponse::fail(
             Status::InternalServerError,
@@ -18,7 +20,6 @@ fn set_cookie(cookies: &CookieJar<'_>, user: impl Into<AuthUser>) -> ApiResult<(
             Some(&e),
         )
     })?;
-    let auth = &user.into();
     let token = encode::<AuthUser>(
         &Header::default(),
         auth,
@@ -33,12 +34,44 @@ fn set_cookie(cookies: &CookieJar<'_>, user: impl Into<AuthUser>) -> ApiResult<(
     })?;
 
     cookies.add_private(
-        Cookie::build(("jwt_token", token))
+        Cookie::build(("access_token", token))
             .http_only(true)
             .secure(true)
             .same_site(SameSite::Lax)
-            .expires(rocket::time::OffsetDateTime::from_unix_timestamp(auth.exp as i64).unwrap()),
+            .expires(Expiration::Session),
     );
+    Ok(())
+}
+
+async fn login_cookie(
+    pool: &State<PgPool>,
+    cookies: &CookieJar<'_>,
+    user: impl Into<AuthUser>,
+) -> ApiResult<()> {
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    let auth = &user.into();
+    let refresh_token = sqlx::query_scalar!(
+        "INSERT INTO user_tokens (user_id, expires_at) VALUES ($1, $2) RETURNING refresh_token",
+        auth.user_id,
+        get_refresh_time().naive_utc()
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    create_access_cookie(cookies, auth)?;
+    cookies.add_private(
+        Cookie::build(("refresh_token", refresh_token.to_string()))
+            .http_only(true)
+            .secure(true)
+            .same_site(SameSite::Lax)
+            .expires(Expiration::Session),
+    );
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
     Ok(())
 }
 
@@ -51,6 +84,13 @@ pub struct AuthUser {
     pub exp: usize,
 }
 
+impl AuthUser {
+    fn renew(mut self, new_time: i64) -> Self {
+        self.exp = new_time as usize;
+        self
+    }
+}
+
 impl From<User> for AuthUser {
     fn from(user: User) -> Self {
         AuthUser {
@@ -58,7 +98,7 @@ impl From<User> for AuthUser {
             login: user.login,
             username: user.username,
             admin: user.admin,
-            exp: (Utc::now() + Duration::hours(500)).timestamp() as usize,
+            exp: get_access_time().timestamp() as usize,
         }
     }
 }
@@ -120,7 +160,7 @@ pub async fn login(
             Some(&e),
         )
     })? {
-        set_cookie(cookies, user)?;
+        login_cookie(pool, cookies, user).await?;
         Ok((Status::Ok, ApiResponse::success()))
     } else {
         Err(ApiResponse::fail(
@@ -191,7 +231,8 @@ pub async fn register(
 
 #[post("/logout")]
 pub fn logout(cookies: &CookieJar<'_>) -> Json<ApiResponse> {
-    cookies.remove_private(Cookie::from("jwt_token"));
+    cookies.remove_private(Cookie::from("access_token"));
+    cookies.remove_private(Cookie::from("refresh_token"));
     ApiResponse::success()
 }
 
@@ -291,19 +332,29 @@ impl<'r> FromRequest<'r> for AuthUser {
     type Error = (Status, Json<ApiResponse>);
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let pool = match req.guard::<&State<PgPool>>().await {
+            Outcome::Success(pool) => pool,
+            Outcome::Error(_) | Outcome::Forward(_) => {
+                return Outcome::Error((
+                    Status::InternalServerError,
+                    ApiResponse::fail(Status::InternalServerError, "internal server error", None),
+                ));
+            }
+        };
+
         let cookies = req.cookies();
         let token = cookies
-            .get_private("jwt_token")
-            .map(|cookie| cookie.value().to_string())
-            .or_else(|| {
-                cookies
-                    .get("jwt_token")
-                    .map(|cookie| cookie.value().to_string())
-            });
+            .get_private("access_token")
+            .map(|cookie| cookie.value().to_string());
+        let refresh_token = cookies
+            .get_private("refresh_token")
+            .map(|cookie| cookie.value().to_string());
 
-        let token = match token {
-            Some(t) => t,
-            None => {
+        let (token, refresh_token) = match (token, refresh_token) {
+            (Some(t), Some(u)) => (t, u),
+            _ => {
+                cookies.remove_private(Cookie::from("access_token"));
+                cookies.remove_private(Cookie::from("refresh_token"));
                 return Outcome::Error((
                     Status::Unauthorized,
                     ApiResponse::fail(Status::Unauthorized, "you are not authenticated", None),
@@ -324,14 +375,42 @@ impl<'r> FromRequest<'r> for AuthUser {
                 if token_data.claims.exp > now {
                     Outcome::Success(token_data.claims)
                 } else {
-                    Outcome::Error((
-                        Status::Unauthorized,
-                        ApiResponse::fail(
+                    let expires_at = match sqlx::query_scalar!(
+                        "SELECT expires_at FROM user_tokens WHERE user_id = $1",
+                        token_data.claims.user_id
+                    )
+                    .fetch_one(pool.inner())
+                    .await
+                    {
+                        Ok(v) => v,
+                        Err(e) => {
+                            return Outcome::Error((
+                                Status::Unauthorized,
+                                ApiResponse::fail(
+                                    Status::InternalServerError,
+                                    "database error",
+                                    Some(&e),
+                                ),
+                            ));
+                        }
+                    };
+
+                    if expires_at > Utc::now().naive_utc() {
+                        let auth = token_data.claims.renew(get_access_time().timestamp());
+                        match create_access_cookie(cookies, &auth) {
+                            Ok(_) => Outcome::Success(auth),
+                            Err(e) => Outcome::Error((Status::InternalServerError, e)),
+                        }
+                    } else {
+                        Outcome::Error((
                             Status::Unauthorized,
-                            "authentication token expired",
-                            None,
-                        ),
-                    ))
+                            ApiResponse::fail(
+                                Status::Unauthorized,
+                                "authentication token expired",
+                                None,
+                            ),
+                        ))
+                    }
                 }
             }
             Err(e) if e.kind() == &jsonwebtoken::errors::ErrorKind::InvalidToken => {

@@ -14,8 +14,17 @@ use rocket::Config;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::{env, fs};
+use chrono::{DateTime, Duration, Utc};
 
 static FILES_DIR: OnceLock<String> = OnceLock::new();
+
+fn get_access_time() -> DateTime<Utc> {
+    Utc::now() + Duration::minutes(1)
+}
+
+fn get_refresh_time() -> DateTime<Utc> {
+    Utc::now() + Duration::minutes(2)
+}
 
 #[launch]
 async fn rocket() -> _ {
