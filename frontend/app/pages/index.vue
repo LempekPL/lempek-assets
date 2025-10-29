@@ -204,16 +204,19 @@ useHead({
 
     <div v-else @contextmenu.prevent="openMenuBox($event)" class="main-box">
       <div :class="viewType === 'grid' ? 'items-grid' : 'items-list'">
-        <div v-for="folder in folders" :key="folder.id" class="item"
-             @contextmenu.prevent.stop="openMenuBox($event, folder, 'folder')" @dblclick="enterFolder(folder.id)">
-          <Icon class="icon" name="material-symbols:folder-rounded"/>
-          <p>{{ folder.name }}</p>
-        </div>
-        <div v-for="file in files" :key="file.id" class="item"
-             @contextmenu.prevent.stop="openMenuBox($event, file, 'file')" @dblclick="enterFile(file.name)">
-          <Icon class="icon" name="material-symbols:unknown-document-rounded"/>
-          <p>{{ file.name }}</p>
-        </div>
+        <MainItemBox
+            v-for="folder in folders" :key="folder.id"
+            @contextmenu.prevent.stop="openMenuBox($event, folder, 'folder')"
+            @dblclick="enterFolder(folder.id)"
+            :name="folder.name"
+            isFolder
+        />
+        <MainItemBox
+            v-for="file in files" :key="file.id"
+            @contextmenu.prevent.stop="openMenuBox($event, file, 'file')"
+            @dblclick="enterFile(file.id)"
+            :name="file.name"
+        />
       </div>
     </div>
   </transition>
@@ -491,38 +494,6 @@ useHead({
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
   gap: 1rem;
-
-  .item {
-    user-select: none;
-    padding: 2rem;
-    height: 13rem;
-    border-radius: 1rem;
-    background-color: var(--box-color);
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    align-items: center;
-    gap: 2rem;
-    text-align: center;
-    cursor: pointer;
-
-    &:active {
-      transform: scale(0.95);
-    }
-
-    .icon {
-      padding: 3rem;
-    }
-
-    p {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100%;
-      line-height: 1;
-      padding-bottom: 4px;
-    }
-  }
 }
 
 .items-list {
