@@ -4,17 +4,22 @@ const props = defineProps<{
   name: string
 }>();
 //"material-symbols:" +
-const listOfIcons: [string,string][] = [
-  ["html", "a"]
+const LIST_OF_ICONS: [string[], string][] = [
+  [["png", "jpg", "jpeg", "gif", "webp"], "material-symbols:imagesmode-rounded"],
+  [["mov", "mp4", "webm", "mkv"], "material-symbols:video-library-rounded"],
+  [["zip", "tar", "tar.gz", "rar", "7z"], "material-symbols:folder-zip-rounded"],
+  [["pdf"], "material-symbols:picture-as-pdf-rounded"]
 ]
 
 const iconName = computed<string>(() => {
   if (props.isFolder) {
     return "material-symbols:folder-rounded";
   }
-  for (const listOfIcon of listOfIcons) {
-    if (props.name.endsWith("."+listOfIcon[0])) {
-      return listOfIcon[1];
+  for (const listOfIcon of LIST_OF_ICONS) {
+    for (const extName of listOfIcon[0]) {
+      if (props.name.toLowerCase().endsWith("." + extName)) {
+        return listOfIcon[1];
+      }
     }
   }
   return "material-symbols:unknown-document-rounded";
@@ -23,7 +28,7 @@ const iconName = computed<string>(() => {
 </script>
 
 <template>
-  <div class="item">
+  <div class="item" :title="name">
     <Icon class="icon" :name="iconName"/>
     <p>{{ name }}</p>
   </div>
