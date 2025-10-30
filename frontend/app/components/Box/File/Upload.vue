@@ -2,6 +2,7 @@
 const props = defineProps<{
   show: boolean
   parentId?: string | null
+  file?: File | null
 }>()
 const emit = defineEmits(['close', 'success'])
 
@@ -11,6 +12,13 @@ const file = ref<File | null>(null);
 const fileName = ref('');
 const dragOver = ref(false);
 
+watch(() => props.file, (newFile) => {
+  if (!file.value) {
+    file.value = newFile || null;
+    fileName.value = fileName.value || newFile?.name || "";
+  }
+});
+
 function changeFile(event: Event) {
   const target = event.target as HTMLInputElement;
   if (target.files && target.files.length > 0) {
@@ -18,8 +26,11 @@ function changeFile(event: Event) {
     if (!fileName.value && file.value) {
       fileName.value = file.value.name;
     }
+    console.log(fileName.value);
+    console.log(file.value);
   } else {
     fileName.value = '';
+    file.value = null;
   }
 }
 
@@ -113,6 +124,7 @@ function handleDragOver(ev: DragEvent) {
   ev.preventDefault();
   dragOver.value = true;
 }
+
 function handleDragLeave() {
   dragOver.value = false;
 }
@@ -137,7 +149,7 @@ function handleDragLeave() {
              @drop="handleDrop"
              tabindex="0">
         <Icon class="file-icon" name="material-symbols:upload-2-rounded"/>
-        <span class="file-text">{{ fileName || 'Wybierz plik' }}</span>
+        <span class="file-text">{{ file?.name || 'Wybierz plik' }}</span>
       </label>
     </div>
     <div v-if="loading" class="progress-bar">
