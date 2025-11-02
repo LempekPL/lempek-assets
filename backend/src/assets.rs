@@ -1,5 +1,5 @@
 use crate::FILES_DIR;
-use crate::auth::AuthUser;
+use crate::auth::{AuthUser, UserData};
 use crate::models::{ApiResponse, File, Folder};
 use crate::perms::{ApiResult, PermissionKind, check_permission};
 use rocket::form::Form;
@@ -105,7 +105,7 @@ pub struct NewFolderData {
 pub async fn create_folder(
     data: Json<NewFolderData>,
     pool: &State<PgPool>,
-    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+    auth: AuthUser,
 ) -> ApiResult {
     let auth = auth?;
     let mut tx = pool
@@ -190,7 +190,7 @@ pub struct RemoveFolderData {
 pub async fn delete_folder(
     data: Json<RemoveFolderData>,
     pool: &State<PgPool>,
-    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+    auth: AuthUser,
 ) -> ApiResult {
     let auth = auth?;
     let mut tx = pool
@@ -243,7 +243,7 @@ pub struct EditFolderData {
 pub async fn edit_folder(
     data: Json<EditFolderData>,
     pool: &State<PgPool>,
-    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+    auth: AuthUser,
 ) -> ApiResult {
     let auth = auth?;
     let mut tx = pool
@@ -309,7 +309,7 @@ pub async fn edit_folder(
 #[get("/folders/all")]
 pub async fn get_all_folders(
     pool: &State<PgPool>,
-    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+    auth: AuthUser,
 ) -> ApiResult<Json<Vec<Folder>>> {
     let auth = auth?;
 
@@ -348,7 +348,7 @@ pub async fn get_folders(
     parent: Option<Uuid>,
     order: Option<String>,
     pool: &State<PgPool>,
-    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+    auth: AuthUser,
 ) -> ApiResult<Json<Vec<Folder>>> {
     let auth = auth?;
     let order_sql = get_ord(order);
@@ -398,7 +398,7 @@ pub struct UuidPath {
 pub async fn get_folders_path(
     id: Option<Uuid>,
     pool: &State<PgPool>,
-    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+    auth: AuthUser,
 ) -> ApiResult<Json<Vec<UuidPath>>> {
     let auth = auth?;
 
@@ -429,7 +429,7 @@ pub struct UploadFile<'a> {
 pub async fn upload_file<'a>(
     mut data: Form<UploadFile<'a>>,
     pool: &State<PgPool>,
-    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+    auth: AuthUser,
 ) -> ApiResult {
     let auth = auth?;
     let mut tx = pool
@@ -554,7 +554,7 @@ pub async fn upload_file<'a>(
 #[get("/files/all")]
 pub async fn get_all_files(
     pool: &State<PgPool>,
-    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+    auth: AuthUser,
 ) -> ApiResult<Json<Vec<File>>> {
     let auth = auth?;
 
@@ -593,7 +593,7 @@ pub async fn get_files(
     parent: Option<Uuid>,
     order: Option<String>,
     pool: &State<PgPool>,
-    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+    auth: AuthUser,
 ) -> ApiResult<Json<Vec<File>>> {
     let auth = auth?;
     let order_sql = get_ord(order);
@@ -643,7 +643,7 @@ pub struct RemoveFile {
 pub async fn delete_file(
     data: Json<RemoveFile>,
     pool: &State<PgPool>,
-    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+    auth: AuthUser,
 ) -> ApiResult {
     let auth = auth?;
     let mut tx = pool
@@ -695,7 +695,7 @@ pub struct EditFile {
 pub async fn edit_file(
     data: Json<EditFile>,
     pool: &State<PgPool>,
-    auth: Result<AuthUser, (Status, Json<ApiResponse>)>,
+    auth: AuthUser,
 ) -> ApiResult {
     let auth = auth?;
     let mut tx = pool

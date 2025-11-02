@@ -1,9 +1,9 @@
+use crate::auth::UserData;
+use crate::models::ApiResponse;
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use sqlx::PgConnection;
 use uuid::Uuid;
-use crate::auth::AuthUser;
-use crate::models::ApiResponse;
 
 pub type ApiResult<T = (Status, Json<ApiResponse>)> = Result<T, (Status, Json<ApiResponse>)>;
 
@@ -25,7 +25,7 @@ impl PermissionKind {
 
 pub async fn check_permission<'a>(
     tx: &mut PgConnection,
-    user: &AuthUser,
+    user: &UserData,
     folder_id: Option<Uuid>,
     permission: PermissionKind,
 ) -> ApiResult<()> {

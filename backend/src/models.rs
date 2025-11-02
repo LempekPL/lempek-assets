@@ -7,7 +7,7 @@ use std::error::Error;
 use std::panic::Location;
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApiResponse {
     pub success: bool,
     pub err_id: Option<String>,
@@ -86,7 +86,7 @@ impl ApiResponse {
     }
 }
 
-#[derive(Serialize, Deserialize, FromRow, Debug)]
+#[derive(Serialize, Deserialize, FromRow, Debug, Clone)]
 pub struct User {
     pub id: Uuid,
     pub login: String,
@@ -97,7 +97,7 @@ pub struct User {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(FromRow, Serialize, Debug)]
+#[derive(FromRow, Serialize, Debug, Clone)]
 pub struct Folder {
     pub id: Uuid,
     pub parent_id: Option<Uuid>,
@@ -107,7 +107,7 @@ pub struct Folder {
     pub updated_at: DateTime<Utc>,
 }
 
- #[derive(FromRow, Serialize, Debug)]
+ #[derive(FromRow, Serialize, Debug, Clone)]
 pub struct File {
     pub id: Uuid,
     pub folder_id: Option<Uuid>,
@@ -118,7 +118,7 @@ pub struct File {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(FromRow, Debug)]
+#[derive(FromRow, Debug, Clone)]
 pub struct Permission {
     pub id: Uuid,
     pub folder_id: Option<Uuid>,

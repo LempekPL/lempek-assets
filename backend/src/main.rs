@@ -16,8 +16,8 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::{env, fs};
 
-const ACCESS_TOKEN_TIME: Duration = Duration::minutes(10);
-const REFRESH_TOKEN_TIME: Duration = Duration::days(7);
+const ACCESS_TOKEN_TIME: Duration = Duration::minutes(5);
+const REFRESH_TOKEN_TIME: Duration = Duration::days(30);
 
 static FILES_DIR: OnceLock<String> = OnceLock::new();
 
@@ -45,11 +45,12 @@ async fn rocket() -> _ {
             "/api",
             routes![
                 cors::options_handler,
-                auth::login,
-                auth::register,
-                auth::logout,
-                auth::get_user,
-                auth::change_password,
+                auth::endpoints::login,
+                auth::endpoints::logout,
+                auth::endpoints::get_user,
+                auth::endpoints::get_user_all,
+                auth::endpoints::get_user_all_admin,
+                auth::endpoints::change_password,
                 assets::create_folder,
                 assets::delete_folder,
                 assets::edit_folder,

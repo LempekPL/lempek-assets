@@ -1,0 +1,259 @@
+use crate::auth::*;
+use crate::models::{ApiResponse, User};
+use crate::perms::ApiResult;
+use crate::REFRESH_TOKEN_TIME;
+use bcrypt::{hash, verify, DEFAULT_COST};
+use chrono::{DateTime, Utc};
+use rocket::http::private::cookie::Expiration;
+use rocket::http::{Cookie, CookieJar, Status};
+use rocket::serde::json::Json;
+use rocket::State;
+use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
+
+#[derive(Serialize, Deserialize)]
+pub struct LoginData {
+    pub login: String,
+    pub password: String,
+}
+
+// TODO: make cookies live as long as they need to
+async fn login_cookie(
+    pool: &State<PgPool>,
+    cookies: &CookieJar<'_>,
+    user: impl Into<UserData>,
+    stay_logged_in: bool,
+) -> ApiResult<()> {
+    let user = user.into();
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    let refresh_token = sqlx::query_scalar!(
+        "INSERT INTO user_tokens (user_id, expires_at) VALUES ($1, $2) RETURNING refresh_token",
+        user.user_id,
+        (Utc::now() + REFRESH_TOKEN_TIME).naive_utc()
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    refresh_refresh_cookie(
+        cookies,
+        &RefreshTokenData {
+            user_id: user.user_id,
+            refresh_token,
+            stay_logged_in,
+        },
+        Expiration::Session,
+    )
+    .await?;
+    refresh_access_cookie(cookies, &user, Expiration::Session).await?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    Ok(())
+}
+
+#[post("/login", format = "json", data = "<data>")]
+pub async fn login(
+    data: Json<LoginData>,
+    pool: &State<PgPool>,
+    cookies: &CookieJar<'_>,
+    user: AuthUser,
+) -> ApiResult {
+    if user.is_ok() {
+        return Err(ApiResponse::fail(
+            Status::Conflict,
+            "you are already logged in",
+            None,
+        ));
+    }
+
+    if data.login.trim().is_empty() || data.password.len() < 8 {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "invalid credentials format",
+            None,
+        ));
+    }
+
+    let user = match sqlx::query_as!(User, "SELECT * FROM users WHERE login = $1", data.login)
+        .fetch_one(pool.inner())
+        .await
+    {
+        Ok(user) => user,
+        Err(sqlx::Error::RowNotFound) => {
+            return Err(ApiResponse::fail(
+                Status::BadRequest,
+                "wrong login or password",
+                None,
+            ));
+        }
+        Err(e) => {
+            return Err(ApiResponse::fail(
+                Status::InternalServerError,
+                "database error",
+                Some(&e),
+            ));
+        }
+    };
+
+    if verify(&data.password, &user.password).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "internal server error",
+            Some(&e),
+        )
+    })? {
+        login_cookie(pool, cookies, user, true).await?;
+        Ok((Status::Ok, ApiResponse::success()))
+    } else {
+        Err(ApiResponse::fail(
+            Status::BadRequest,
+            "wrong login or password",
+            None,
+        ))
+    }
+}
+
+#[post("/logout")]
+pub fn logout(cookies: &CookieJar<'_>) -> Json<ApiResponse> {
+    // TODO: remove refresh_token
+    // let refresh_token = cookies
+    //     .get_private("refresh_token")
+    //     .map(|cookie| cookie.value().to_string());
+    // if let Some(refresh_token) = refresh_token {}
+
+    cookies.remove_private(Cookie::from("access_token"));
+    cookies.remove_private(Cookie::from("refresh_token"));
+    ApiResponse::success()
+}
+
+#[get("/user")]
+pub async fn get_user(user: AuthUser) -> ApiResult<Json<UserData>> {
+    let user = user?;
+    Ok(Json(UserData {
+        user_id: user.user_id,
+        login: user.login,
+        username: user.username,
+        admin: user.admin,
+    }))
+}
+
+#[derive(Serialize)]
+struct UserWithoutPassword {
+    pub id: Uuid,
+    pub login: String,
+    pub username: String,
+    pub admin: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[get("/user/all", rank = 2)]
+pub async fn get_user_all(user: AuthUser, pool: &State<PgPool>) -> ApiResult<Json<UserWithoutPassword>> {
+    let user = user?;
+    let user_data = sqlx::query_as!(User, "SELECT * FROM users WHERE id = $1", user.user_id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok(Json(UserWithoutPassword {
+        id: user_data.id,
+        login: user_data.login,
+        username: user_data.username,
+        admin: user_data.admin,
+        created_at: user_data.created_at,
+        updated_at: user_data.updated_at,
+    }))
+}
+
+#[get("/user/all?<id>")]
+pub async fn get_user_all_admin(id: Uuid, user: AuthAdminUser, pool: &State<PgPool>) -> ApiResult<Json<UserWithoutPassword>> {
+    let _user = user?;
+    let user_data = sqlx::query_as!(User, "SELECT * FROM users WHERE id = $1", id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok(Json(UserWithoutPassword {
+        id: user_data.id,
+        login: user_data.login,
+        username: user_data.username,
+        admin: user_data.admin,
+        created_at: user_data.created_at,
+        updated_at: user_data.updated_at,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct ChangePasswordData {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[post("/user/change_password", format = "json", data = "<data>")]
+pub async fn change_password(
+    data: Json<ChangePasswordData>,
+    pool: &State<PgPool>,
+    user: AuthUser,
+) -> ApiResult {
+    let user = user?;
+
+    if data.current_password.is_empty() || data.new_password.len() < 8 {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "password must have at least 8 characters",
+            None,
+        ));
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    let password = sqlx::query_scalar!("SELECT password FROM users WHERE id = $1", user.user_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    if !verify(&data.current_password, &password).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "internal server error",
+            Some(&e),
+        )
+    })? {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "wrong current password",
+            None,
+        ));
+    }
+
+    let hashed = hash(&data.new_password, DEFAULT_COST).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "internal server error",
+            Some(&e),
+        )
+    })?;
+
+    sqlx::query!(
+        "UPDATE users SET password = $1 WHERE id = $2",
+        hashed,
+        user.user_id
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok((Status::Ok, ApiResponse::success()))
+}
