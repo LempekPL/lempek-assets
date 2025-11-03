@@ -50,6 +50,8 @@ async fn rocket() -> _ {
                 auth::endpoints::get_user,
                 auth::endpoints::get_user_all,
                 auth::endpoints::get_user_all_admin,
+                auth::endpoints::get_user_tokens,
+                auth::endpoints::remove_user_token,
                 auth::endpoints::change_password,
                 assets::create_folder,
                 assets::delete_folder,

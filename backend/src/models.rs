@@ -5,6 +5,7 @@ use sqlx::FromRow;
 use sqlx::types::chrono::{DateTime, Utc};
 use std::error::Error;
 use std::panic::Location;
+use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -95,6 +96,17 @@ pub struct User {
     pub admin: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Serialize, Deserialize, FromRow, Debug, Clone)]
+pub struct UserToken {
+    pub id: Uuid,
+    // TODO: ugh option
+    pub user_id: Option<Uuid>,
+    pub refresh_token: Uuid,
+    // TODO: change to DateTime<Utc>, ugh and the option bruh
+    pub expires_at: NaiveDateTime,
+    pub created_at: Option<NaiveDateTime>,
 }
 
 #[derive(FromRow, Serialize, Debug, Clone)]

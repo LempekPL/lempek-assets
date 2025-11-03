@@ -1,9 +1,9 @@
 use crate::auth::*;
-use crate::models::{ApiResponse, User};
+use crate::models::{ApiResponse, User, UserToken};
 use crate::perms::ApiResult;
 use crate::REFRESH_TOKEN_TIME;
 use bcrypt::{hash, verify, DEFAULT_COST};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use rocket::http::private::cookie::Expiration;
 use rocket::http::{Cookie, CookieJar, Status};
 use rocket::serde::json::Json;
@@ -153,7 +153,10 @@ struct UserWithoutPassword {
 }
 
 #[get("/user/all", rank = 2)]
-pub async fn get_user_all(user: AuthUser, pool: &State<PgPool>) -> ApiResult<Json<UserWithoutPassword>> {
+pub async fn get_user_all(
+    user: AuthUser,
+    pool: &State<PgPool>,
+) -> ApiResult<Json<UserWithoutPassword>> {
     let user = user?;
     let user_data = sqlx::query_as!(User, "SELECT * FROM users WHERE id = $1", user.user_id)
         .fetch_one(pool.inner())
@@ -171,7 +174,11 @@ pub async fn get_user_all(user: AuthUser, pool: &State<PgPool>) -> ApiResult<Jso
 }
 
 #[get("/user/all?<id>")]
-pub async fn get_user_all_admin(id: Uuid, user: AuthAdminUser, pool: &State<PgPool>) -> ApiResult<Json<UserWithoutPassword>> {
+pub async fn get_user_all_admin(
+    id: Uuid,
+    user: AuthAdminUser,
+    pool: &State<PgPool>,
+) -> ApiResult<Json<UserWithoutPassword>> {
     let _user = user?;
     let user_data = sqlx::query_as!(User, "SELECT * FROM users WHERE id = $1", id)
         .fetch_one(pool.inner())
@@ -186,6 +193,67 @@ pub async fn get_user_all_admin(id: Uuid, user: AuthAdminUser, pool: &State<PgPo
         created_at: user_data.created_at,
         updated_at: user_data.updated_at,
     }))
+}
+
+#[derive(Serialize)]
+pub struct UserTokenWithoutTheToken {
+    id: Uuid,
+    user_id: Option<Uuid>,
+    expires_at: NaiveDateTime,
+    created_at: Option<NaiveDateTime>,
+}
+
+#[get("/user/tokens")]
+pub async fn get_user_tokens(
+    user: AuthUser,
+    pool: &State<PgPool>,
+) -> ApiResult<Json<Vec<UserTokenWithoutTheToken>>> {
+    let user = user?;
+    let user_tokens = sqlx::query_as!(
+        UserToken,
+        "SELECT * FROM user_tokens WHERE user_id = $1 ORDER BY created_at",
+        user.user_id
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    let user_tokens = user_tokens
+        .into_iter()
+        .map(|v| UserTokenWithoutTheToken {
+            id: v.id,
+            user_id: v.user_id,
+            expires_at: v.expires_at,
+            created_at: v.created_at,
+        })
+        .collect::<Vec<UserTokenWithoutTheToken>>();
+
+    Ok(Json(user_tokens))
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RemoveTokenData {
+    pub id: Uuid,
+}
+
+#[delete("/user/tokens", format = "json", data = "<data>")]
+pub async fn remove_user_token(
+    data: Json<RemoveTokenData>,
+    user: AuthUser,
+    pool: &State<PgPool>,
+) -> ApiResult {
+    let user = user?;
+    sqlx::query_as!(
+        UserToken,
+        "DELETE FROM user_tokens WHERE user_id = $1 AND id = $2",
+        user.user_id,
+        data.id
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    // TODO: get amount and give it (if needed)
+    Ok((Status::Ok, ApiResponse::success()))
 }
 
 #[derive(Deserialize)]
