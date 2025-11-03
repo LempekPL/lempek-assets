@@ -101,12 +101,14 @@ pub struct User {
 #[derive(Serialize, Deserialize, FromRow, Debug, Clone)]
 pub struct UserToken {
     pub id: Uuid,
-    // TODO: ugh option
-    pub user_id: Option<Uuid>,
+    pub user_id: Uuid,
     pub refresh_token: Uuid,
-    // TODO: change to DateTime<Utc>, ugh and the option bruh
-    pub expires_at: NaiveDateTime,
-    pub created_at: Option<NaiveDateTime>,
+    pub user_agent: Option<String>,
+    pub country: Option<String>,
+    pub region: Option<String>,
+    pub city: Option<String>,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(FromRow, Serialize, Debug, Clone)]

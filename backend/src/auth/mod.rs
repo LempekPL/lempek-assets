@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 pub mod endpoints;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JWTData<T> {
     pub data: T,
     pub exp: usize,
@@ -179,7 +179,6 @@ async fn from_request_user_data(
     })?;
     let key = DecodingKey::from_secret(jwt_secret.as_bytes());
     if let Some(access_token) = access_token {
-        // val.reject_tokens_expiring_in_less_than = 10;
         match decode::<JWTData<UserData>>(&access_token, &key, &Validation::default()) {
             Ok(v) => return Ok(v.claims.data),
             // no need to return anything and the code can continue, if token expired it can be refreshed because the refresh token exists
@@ -250,7 +249,7 @@ async fn from_request_user_data(
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
-    if expires_at.is_none() || expires_at.unwrap() < Utc::now().naive_utc() {
+    if expires_at.is_none() || expires_at.unwrap() < Utc::now() {
         // we can ignore error because if it doesn't remove now it can later
         let _ = sqlx::query!(
             "DELETE FROM user_tokens WHERE user_id = $1 AND expires_at < NOW();",

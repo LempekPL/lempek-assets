@@ -1,6 +1,0 @@
-ALTER TABLE permissions
-    ALTER COLUMN read SET NOT NULL;
-ALTER TABLE permissions
-    ALTER COLUMN modify SET NOT NULL;
-ALTER TABLE permissions
-    ALTER COLUMN edit SET NOT NULL;
