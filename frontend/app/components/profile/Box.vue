@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type {CSSProperties} from "vue";
+
 defineProps<{
   width: CSSProperties['width'],
 }>()

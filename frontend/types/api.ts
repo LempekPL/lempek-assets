@@ -27,3 +27,23 @@ export type UuidName = {
     id: string;
     name: string;
 }
+
+export type RefreshToken = {
+    id: string;
+    user_agent: string | null;
+    country: string | null;
+    region: string | null;
+    city: string | null;
+    expires_at: string;
+    created_at: string;
+}
+
+export type UserAll = {
+    id: string;
+    login: string;
+    username: string;
+    admin: boolean;
+    created_at: string;
+    updated_at: string;
+
+}
