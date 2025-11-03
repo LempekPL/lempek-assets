@@ -255,7 +255,7 @@ async fn from_request_user_data(
             "DELETE FROM user_tokens WHERE user_id = $1 AND expires_at < NOW();",
             refresh_data.user_id
         )
-        .fetch_optional(pool.inner())
+        .execute(pool.inner())
         .await;
         cookies.remove_private(Cookie::from("access_token"));
         cookies.remove_private(Cookie::from("refresh_token"));

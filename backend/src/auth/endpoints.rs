@@ -41,9 +41,16 @@ async fn login_cookie(
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
     let user_data = if let Some(user_ip) = uaip.client_ip {
-        let url = format!("http://ip-api.com/json/{}?fields=city,regionName,country", user_ip);
-        let resp = reqwest::Client::new().get(&url).send().await.map_err(|e| ApiResponse::fail(Status::InternalServerError, "request error", Some(&e)))?;
-        resp.json().await.map_err(|e| ApiResponse::fail(Status::InternalServerError, "request error", Some(&e)))?
+        let url = format!(
+            "http://ip-api.com/json/{}?fields=city,regionName,country",
+            user_ip
+        );
+        let resp = reqwest::Client::new().get(&url).send().await.map_err(|e| {
+            ApiResponse::fail(Status::InternalServerError, "request error", Some(&e))
+        })?;
+        resp.json().await.map_err(|e| {
+            ApiResponse::fail(Status::InternalServerError, "request error", Some(&e))
+        })?
     } else {
         IpApiResponse::default()
     };
@@ -70,7 +77,7 @@ async fn login_cookie(
         },
         Expiration::Session,
     )
-        .await?;
+    .await?;
     refresh_access_cookie(cookies, &user, Expiration::Session).await?;
 
     tx.commit()
@@ -142,14 +149,34 @@ pub async fn login(
     }
 }
 
-#[post("/logout")]
-pub fn logout(cookies: &CookieJar<'_>) -> Json<ApiResponse> {
-    // TODO: remove refresh_token
-    // let refresh_token = cookies
-    //     .get_private("refresh_token")
-    //     .map(|cookie| cookie.value().to_string());
-    // if let Some(refresh_token) = refresh_token {}
+async fn remove_current_refresh_token(cookies: &CookieJar<'_>, pool: &State<PgPool>) -> ApiResult<()> {
+    let refresh_token = cookies
+        .get_private("refresh_token")
+        .map(|cookie| cookie.value().to_string());
+    if let Some(refresh_token) = refresh_token {
+        let jwt_secret = std::env::var("JWT_SECRET").map_err(|e| {
+            ApiResponse::fail(Status::InternalServerError, "internal server error", None)
+        })?;
+        let key = DecodingKey::from_secret(jwt_secret.as_bytes());
+        let mut valid = Validation::default();
+        valid.validate_exp = false;
+        if let Ok(refresh_data) = decode::<JWTData<RefreshTokenData>>(&refresh_token, &key, &valid)
+        {
+            let _ = sqlx::query!(
+                "DELETE FROM user_tokens WHERE user_id = $1 AND (refresh_token = $2 OR expires_at < NOW());",
+                refresh_data.claims.data.user_id,
+                refresh_data.claims.data.refresh_token
+            )
+                .execute(pool.inner())
+                .await;
+        }
+    }
+    Ok(())
+}
 
+#[post("/logout")]
+pub async fn logout(cookies: &CookieJar<'_>, pool: &State<PgPool>) -> Json<ApiResponse> {
+    let _ = remove_current_refresh_token(cookies, pool).await;
     cookies.remove_private(Cookie::from("access_token"));
     cookies.remove_private(Cookie::from("refresh_token"));
     ApiResponse::success()
@@ -167,7 +194,7 @@ pub async fn get_user(user: AuthUser) -> ApiResult<Json<UserData>> {
 }
 
 #[derive(Serialize)]
-struct UserWithoutPassword {
+pub struct UserWithoutPassword {
     pub id: Uuid,
     pub login: String,
     pub username: String,
@@ -265,9 +292,9 @@ pub async fn remove_user_token(
         user.user_id,
         data.id
     )
-        .fetch_all(pool.inner())
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
     // TODO: get amount and give it (if needed)
     Ok((Status::Ok, ApiResponse::success()))
 }
@@ -331,9 +358,9 @@ pub async fn change_password(
         hashed,
         user.user_id
     )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
     tx.commit()
         .await
@@ -342,6 +369,7 @@ pub async fn change_password(
     Ok((Status::Ok, ApiResponse::success()))
 }
 
+#[derive(Debug)]
 pub struct UserAgentIp {
     user_agent: Option<String>,
     client_ip: Option<IpAddr>,
@@ -352,7 +380,10 @@ impl<'r> FromRequest<'r> for UserAgentIp {
     type Error = ();
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let user_agent = request.headers().get_one("User-Agent").map(|s| s.to_string());
+        let user_agent = request
+            .headers()
+            .get_one("User-Agent")
+            .map(|s| s.to_string());
         let client_ip = request.client_ip();
         Outcome::Success(UserAgentIp {
             user_agent,
