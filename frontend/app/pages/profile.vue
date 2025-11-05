@@ -5,6 +5,7 @@ const config = useRuntimeConfig();
 
 const userpass = reactive({login: '', password: '', new_password: '', message: null as ApiResponse | null, loading: false})
 const nameChange = reactive({login: '', password: '', new_username: '', message: null as ApiResponse | null, loading: false})
+const createNewUser = reactive({login: '', password: '', message: null as ApiResponse | null, loading: false})
 
 const auth = useAuthStore();
 const devicesClosed = ref(true)
@@ -37,6 +38,34 @@ const handleUpdateName = async () => {
   }
 }
 
+const handleCreateUser = async () => {
+  try {
+    createNewUser.loading = true;
+    createNewUser.message = await $fetch<ApiResponse>(config.public.apiBase + '/user/create', {
+      method: 'POST',
+      credentials: 'include',
+      body: {login: createNewUser.login, password: createNewUser.password}
+    });
+    if (createNewUser.message.success) {
+      createNewUser.login = '';
+      createNewUser.password = '';
+      await navigateTo('/profile');
+    }
+  } catch (error: any) {
+    if (error?.data) {
+      createNewUser.message = error.data;
+    } else {
+      createNewUser.message = {
+        success: false,
+        detail: 'Nie udało się stworzyć użytkownika (błąd sieci).',
+        err_id: null
+      }
+    }
+  } finally {
+    createNewUser.loading = false
+  }
+}
+
 const {
   data: deviceTokens,
   refresh: refreshDevices
@@ -54,7 +83,7 @@ const user = await $fetch<UserAll>(config.public.apiBase + `/user/all`, {
 
 
 useHead({
-  title: "AS - Profil"
+  title: "AS Profil"
 })
 </script>
 
@@ -97,6 +126,16 @@ useHead({
       </div>
     </div>
   </ProfileBox>
+  <ProfileBox v-if="auth.user?.admin" width="min(100%, 60vh)">
+    <template #name>Stwórz użytkownika</template>
+    <form @submit.prevent="handleCreateUser">
+      <PartInput id="nu_name" name="Login użytkownika" v-model="createNewUser.login" required="required" :disabled="createNewUser.loading"/>
+      <PartInput type="password" id="nu_pass" name="Hasło użytkownika" v-model="createNewUser.password" required="required" :disabled="createNewUser.loading"/>
+      <BoxError v-if="createNewUser.message && !createNewUser.message.success" :message="createNewUser.message.detail"/>
+      <BoxOk v-if="createNewUser.message && createNewUser.message.success" message="Stworzono użytkownika"/>
+      <PartButton type="submit" :disabled="createNewUser.loading">Stwórz użytkownika</PartButton>
+    </form>
+  </ProfileBox>
   <ProfileBox width="min(100%, 60vh)">
     <template #name>Zmień nazwę</template>
     <form @submit.prevent="handleUpdateName">
@@ -135,7 +174,7 @@ form {
 
     &:last-child {
       align-self: flex-end;
-      width: 10rem;
+      width: 12rem;
     }
   }
 }

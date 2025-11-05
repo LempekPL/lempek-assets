@@ -54,6 +54,7 @@ async fn rocket() -> _ {
                 auth::endpoints::remove_user_token,
                 auth::endpoints::change_password,
                 auth::endpoints::change_username,
+                auth::endpoints::create_user,
                 assets::create_folder,
                 assets::delete_folder,
                 assets::edit_folder,

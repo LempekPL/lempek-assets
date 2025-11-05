@@ -430,6 +430,79 @@ pub async fn change_username(data: Json<ChangeUsernameData>, cookie: &CookieJar<
     Ok((Status::Ok, ApiResponse::success()))
 }
 
+#[derive(Deserialize)]
+pub struct CreateUserData {
+    login: String,
+    password: String
+}
+
+#[post("/user/create", format = "json", data = "<data>")]
+pub async fn create_user(
+    data: Json<CreateUserData>,
+    pool: &State<PgPool>,
+    admin: AuthAdminUser,
+) -> ApiResult {
+    let _admin = admin?;
+    let trimmed_login = data.login.trim();
+
+    if trimmed_login.is_empty() {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "login must be provided",
+            None,
+        ));
+    }
+
+    if trimmed_login.is_ascii() {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "login can use only letters and numbers",
+            None,
+        ));
+    }
+
+    if data.password.len() < 8 {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "password mus be 8 characters long",
+            None,
+        ));
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    let hashed_password = hash(&data.password, DEFAULT_COST).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "internal server error",
+            Some(&e),
+        )
+    })?;
+
+    let user = sqlx::query_as!(
+        User,
+        "INSERT INTO users (login, username, password) VALUES ($1, $1, $2) RETURNING *",
+        trimmed_login,
+        hashed_password
+    )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    sqlx::query!("INSERT INTO permissions (user_id) VALUES ($1)", user.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    Ok((Status::Ok, ApiResponse::success()))
+}
+
 #[derive(Debug)]
 pub struct UserAgentIp {
     user_agent: Option<String>,
