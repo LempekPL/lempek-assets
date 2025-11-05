@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineProps<{
-  message: string;
+  message: string | null;
 }>()
 </script>
 
@@ -9,7 +9,7 @@ defineProps<{
     <div>
       <Icon name="material-symbols:exclamation-rounded"/>
     </div>
-    <p>{{ message }}</p>
+    <p>{{ message ?? "Error" }}</p>
   </div>
 </template>
 

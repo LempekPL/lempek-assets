@@ -50,8 +50,8 @@ export const useAuthStore = defineStore('auth', {
         async changePassword(credentials: { current_password: string, new_password: string }): Promise<ApiResponse> {
             const config = useRuntimeConfig();
             try {
-                return await $fetch<ApiResponse>(config.public.apiBase + '/user/change_password', {
-                    method: 'POST',
+                return await $fetch<ApiResponse>(config.public.apiBase + '/user/password', {
+                    method: 'PATCH',
                     credentials: 'include',
                     body: credentials
                 });
@@ -62,6 +62,26 @@ export const useAuthStore = defineStore('auth', {
                 return {
                     success: false,
                     detail: 'Nie udało się zmienić hasła (błąd sieci).',
+                    err_id: null
+                };
+            }
+        },
+
+        async changeUsername(credentials: { password: string, new_username: string }): Promise<ApiResponse> {
+            const config = useRuntimeConfig();
+            try {
+                return await $fetch<ApiResponse>(config.public.apiBase + '/user/username', {
+                    method: 'PATCH',
+                    credentials: 'include',
+                    body: credentials
+                });
+            } catch (error: any) {
+                if (error?.data) {
+                    return error.data as ApiResponse;
+                }
+                return {
+                    success: false,
+                    detail: 'Nie udało się zmienić nazwy (błąd sieci).',
                     err_id: null
                 };
             }

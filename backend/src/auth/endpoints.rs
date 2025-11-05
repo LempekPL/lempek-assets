@@ -305,7 +305,7 @@ pub struct ChangePasswordData {
     pub new_password: String,
 }
 
-#[post("/user/change_password", format = "json", data = "<data>")]
+#[patch("/user/password", format = "json", data = "<data>")]
 pub async fn change_password(
     data: Json<ChangePasswordData>,
     pool: &State<PgPool>,
@@ -365,6 +365,67 @@ pub async fn change_password(
     tx.commit()
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok((Status::Ok, ApiResponse::success()))
+}
+
+#[derive(Deserialize)]
+pub struct ChangeUsernameData {
+    password: String,
+    new_username: String
+}
+
+#[patch("/user/username", format = "json", data = "<data>")]
+pub async fn change_username(data: Json<ChangeUsernameData>, cookie: &CookieJar<'_>, pool: &State<PgPool>, user: AuthUser) -> ApiResult {
+    let user = user?;
+
+    if data.password.is_empty() {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "password must be provided",
+            None,
+        ));
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    let password = sqlx::query_scalar!("SELECT password FROM users WHERE id = $1", user.user_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    if !verify(&data.password, &password).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "internal server error",
+            Some(&e),
+        )
+    })? {
+        return Err(ApiResponse::fail(
+            Status::BadRequest,
+            "wrong password",
+            None,
+        ));
+    }
+
+    let user_data = sqlx::query_as!(User,
+        "UPDATE users SET username = $1 WHERE id = $2 RETURNING *",
+        data.new_username,
+        user.user_id
+    )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    let user_data = user_data.into();
+    let _ = refresh_access_cookie(cookie, &user_data, Expiration::Session).await;
 
     Ok((Status::Ok, ApiResponse::success()))
 }
