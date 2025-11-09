@@ -88,8 +88,8 @@ useHead({
 </script>
 
 <template>
-  <ProfileBox width="min(100%, 60vh)">
-    <template #name>Profil</template>
+  <HeaderBox width="min(100%, 60vh)">
+    <template #header>Profil</template>
     <div class="profile-info">
       <p>UUID:</p>
       <p>{{ user.id }}</p>
@@ -104,9 +104,9 @@ useHead({
       <p>Zaktualizowany:</p>
       <p>{{ new Date(user.created_at.substring(0, 23) + "Z").toLocaleString() }}</p>
     </div>
-  </ProfileBox>
-  <ProfileBox width="min(100%, 60vh)">
-    <template #name>
+  </HeaderBox>
+  <HeaderBox width="min(100%, 60vh)">
+    <template #header>
       <span style="cursor: pointer"
             @click="devicesClosed = !devicesClosed">Urządzenia [{{ deviceTokens?.length }}] <Icon
           class="icon"
@@ -125,9 +125,9 @@ useHead({
         <p>{{ token.expires_at }}</p>
       </div>
     </div>
-  </ProfileBox>
-  <ProfileBox v-if="auth.user?.admin" width="min(100%, 60vh)">
-    <template #name>Stwórz użytkownika</template>
+  </HeaderBox>
+  <HeaderBox v-if="auth.user?.admin" width="min(100%, 60vh)">
+    <template #header>Stwórz użytkownika</template>
     <form @submit.prevent="handleCreateUser">
       <PartInput id="nu_name" name="Login użytkownika" v-model="createNewUser.login" required="required" :disabled="createNewUser.loading"/>
       <PartInput type="password" id="nu_pass" name="Hasło użytkownika" v-model="createNewUser.password" required="required" :disabled="createNewUser.loading"/>
@@ -135,9 +135,9 @@ useHead({
       <BoxOk v-if="createNewUser.message && createNewUser.message.success" message="Stworzono użytkownika"/>
       <PartButton type="submit" :disabled="createNewUser.loading">Stwórz użytkownika</PartButton>
     </form>
-  </ProfileBox>
-  <ProfileBox width="min(100%, 60vh)">
-    <template #name>Zmień nazwę</template>
+  </HeaderBox>
+  <HeaderBox width="min(100%, 60vh)">
+    <template #header>Zmień nazwę</template>
     <form @submit.prevent="handleUpdateName">
       <PartInput id="nn_login" name="Login" v-model="nameChange.login" hidden="hidden" required="not"/>
       <PartInput id="nn_name" name="Nowa Nazwa" v-model="nameChange.new_username" required="required" :disabled="nameChange.loading"/>
@@ -146,9 +146,9 @@ useHead({
       <BoxOk v-if="nameChange.message && nameChange.message.success" message="Zmieniono nazwę"/>
       <PartButton type="submit" :disabled="nameChange.loading">Zmień nazwę</PartButton>
     </form>
-  </ProfileBox>
-  <ProfileBox width="min(100%, 60vh)">
-    <template #name>Zmień Hasło</template>
+  </HeaderBox>
+  <HeaderBox width="min(100%, 60vh)">
+    <template #header>Zmień Hasło</template>
     <form @submit.prevent="handleUpdatePassword">
       <PartInput id="login" autocomplete="username" name="Login" v-model="userpass.login" hidden="hidden" required="not"/>
       <PartInput type="password" id="password" autocomplete="current-password" name="Stare Hasło" v-model="userpass.password"
@@ -159,7 +159,7 @@ useHead({
       <BoxOk v-if="userpass.message && userpass.message.success" message="Ustawiono nowe hasło"/>
       <PartButton type="submit" :disabled="userpass.loading">Zaktualizuj hasło</PartButton>
     </form>
-  </ProfileBox>
+  </HeaderBox>
 </template>
 
 <style scoped>

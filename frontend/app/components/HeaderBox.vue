@@ -8,7 +8,7 @@ defineProps<{
 
 <template>
   <div class="box">
-    <p><slot name="name"/></p>
+    <p><slot name="header"/></p>
     <div>
       <slot/>
     </div>

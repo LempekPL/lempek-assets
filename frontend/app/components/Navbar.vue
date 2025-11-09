@@ -34,16 +34,16 @@ onBeforeUnmount(() => {
         <p>AS</p></a>
       <div class="flex-fill"/>
       <div class="buttons">
+        <nuxt-link href="/changelog" tabindex="-1">
+          <PartButton>Changelog</PartButton>
+        </nuxt-link>
         <p v-if="auth.loading">Ładowanie...</p>
         <template v-else>
           <template v-if="auth.isAuthenticated">
-            <a href="/" tabindex="-1">
-              <PartButton>Assety</PartButton>
-            </a>
             <PartButton @click="profileMenu = !profileMenu" ref="buttonOpenRef">{{ auth.user.username }}</PartButton>
           </template>
           <template v-else>
-            <nuxt-link href="/login">
+            <nuxt-link href="/login" tabindex="-1">
               <PartButton>Zaloguj się</PartButton>
             </nuxt-link>
           </template>
