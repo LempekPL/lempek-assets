@@ -19,21 +19,6 @@ watch(() => props.file, (newFile) => {
   }
 });
 
-function changeFile(event: Event) {
-  const target = event.target as HTMLInputElement;
-  if (target.files && target.files.length > 0) {
-    file.value = target.files.item(0);
-    if (!fileName.value && file.value) {
-      fileName.value = file.value.name;
-    }
-    console.log(fileName.value);
-    console.log(file.value);
-  } else {
-    fileName.value = '';
-    file.value = null;
-  }
-}
-
 const config = useRuntimeConfig()
 const progress = ref(0);
 const activeXHR = ref<XMLHttpRequest | null>(null);
@@ -109,14 +94,27 @@ function onCancel() {
   emit('close')
 }
 
+
+function changeFile(event: Event) {
+  const target = event.target as HTMLInputElement;
+  changeFileData(target.files);
+}
+
 function handleDrop(ev: DragEvent) {
   ev.preventDefault();
   dragOver.value = false;
-  if (ev.dataTransfer?.files && ev.dataTransfer.files.length > 0) {
-    file.value = ev.dataTransfer.files.item(0);
+  changeFileData(ev.dataTransfer?.files ?? null);
+}
+
+function changeFileData(fl: FileList | null) {
+  if (fl && fl.length > 0) {
+    file.value = fl.item(0);
     if (file.value) {
       fileName.value = file.value.name;
     }
+  } else {
+    fileName.value = '';
+    file.value = null;
   }
 }
 
