@@ -3,12 +3,18 @@ const props = defineProps<{
   onSuccess?: () => void;
   current: string | null;
 }>();
-
-import { ref } from 'vue';
+type FileTransfer = {
+  name: string | null
+  file: File
+  error: string
+  progress: number
+  status: 'success' | 'none'
+}
 
 const isDragOver = ref(false);
 const addFileBox = ref(false);
-const file = ref<File | null>(null);
+const loading = ref(false);
+const files = reactive<FileTransfer[]>([]);
 
 function onDragOver(event: DragEvent) {
   event.preventDefault();
@@ -22,18 +28,88 @@ function onDragLeave(_event: DragEvent) {
 function onDrop(event: DragEvent) {
   event.preventDefault();
   isDragOver.value = false;
-  const files = event.dataTransfer?.files;
-  if (files && files.length > 0) {
-    file.value = files.item(0);
-    addFileBox.value = true;
+  const fil = event.dataTransfer?.files;
+  if (fil && fil.length > 0) {
+    for (const file of fil) {
+      files.push({name: file.name, file: file, error: '', progress: 0, status: 'none'});
+    }
+  } else {
+    files.length = 0;
   }
+  addFileBox.value = true;
 }
 
-function handleSuccess() {
-  addFileBox.value = false;
-  props.onSuccess && props.onSuccess();
+function onCancel() {
+  if (loading.value) {
+    activeXHR.value?.abort();
+  }
+  files.length = 0;
+  addFileBox.value = false
 }
 
+const config = useRuntimeConfig()
+const activeXHR = ref<XMLHttpRequest | null>(null);
+
+async function onSubmit() {
+  if (files.length == 0) {
+    return
+  }
+  loading.value = true;
+  for (const file of files) {
+    if (file.status === 'success') {
+      continue;
+    }
+    file.progress = 0;
+    try {
+      const formData = new FormData();
+      formData.append('file', file.file);
+      formData.append('name', file.name || file.file.name);
+      if (props.current) formData.append('folder', props.current);
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        activeXHR.value = xhr;
+        xhr.open('POST', config.public.apiBase + '/upload');
+        xhr.withCredentials = true;
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            file.progress = Math.round((event.loaded / event.total) * 100000) / 1000;
+          }
+        };
+
+        xhr.onload = async () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            file.progress = 100;
+            file.status = 'success';
+            resolve();
+          } else {
+            reject(JSON.parse(xhr.response));
+          }
+        };
+
+        xhr.onerror = () => {
+          reject(JSON.parse(xhr.responseText));
+        };
+
+        xhr.onabort = () => {
+          file.progress = 0;
+        }
+
+        xhr.send(formData);
+      });
+    } catch (err: any) {
+      file.error = err?.detail || 'Błąd wysyłania';
+    } finally {
+      activeXHR.value = null;
+    }
+  }
+  if (!files.some((file) => file.error != '')) {
+    addFileBox.value = false;
+    props.onSuccess && props.onSuccess();
+  }
+  loading.value = false;
+}
 </script>
 
 <template>
@@ -44,7 +120,7 @@ function handleSuccess() {
       :class="{ 'drag-over': isDragOver }"
       class="drop-area"
   >
-    <slot />
+    <slot/>
     <div v-show="isDragOver" class="blackout">
       <div>
         <Icon class="upload-icon" name="material-symbols:upload-2-rounded"/>
@@ -52,17 +128,51 @@ function handleSuccess() {
       <p>Prześlij plik</p>
     </div>
 
-    <BoxFileUpload
+    <BoxModal
         :show="addFileBox"
-        @close="addFileBox = false"
-        @success="handleSuccess"
-        :parent-id="current || undefined"
-        :file="file"
-    />
+        :loading="loading"
+        :onSubmit="onSubmit"
+        :onCancel="onCancel"
+    >
+      <div v-for="(file, num) in files" :key="num" style="width: 100%;">
+        <div class="name-box">
+          <PartInput :id="'name-'+(num+1)" :name="'Plik '+(num+1)"
+                     :placeholder="file.file.name" v-model="file.name" style="width: 100%;"/>
+          <PartProgress v-if="loading" class="progress-bar" :value="file.progress" :max="100" :text="file.progress.toFixed(1)+'%'" bg-color="#aaa"
+                        color="var(--accent-color)"/>
+        </div>
+        <BoxError v-if="file.error && !file.error.success" :message="file.error"/>
+      </div>
+      <template #cancel>
+        <PartButton type="button" @click="onCancel"
+                    :style="{ backgroundColor: loading ? 'var(--red-button-color)' : '' }">Anuluj
+        </PartButton>
+      </template>
+      <template #action>
+        <PartButton type="submit" :disabled="loading" style="background: var(--green-button-color)">
+          Wyślij plik
+        </PartButton>
+      </template>
+    </BoxModal>
   </div>
 </template>
 
 <style scoped>
+.name-box {
+  margin-top: .25rem;
+  margin-bottom: .5rem;
+  position: relative;
+
+  .progress-bar {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    height: 100%;
+    border-radius: 9999rem;
+    background-color: var(--box-color);
+  }
+}
+
 .blackout {
   pointer-events: none;
   position: absolute;
@@ -92,6 +202,7 @@ function handleSuccess() {
       height: 100%;
     }
   }
+
   > p {
     font-size: 2rem;
   }
