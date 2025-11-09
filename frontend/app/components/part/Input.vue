@@ -7,6 +7,7 @@ defineProps<{
   type?: string
   autocomplete?: string
   required?: 'required' | 'not'
+  placeholder?: string
 }>();
 
 const emit = defineEmits(['update:modelValue']);
@@ -18,7 +19,7 @@ const emit = defineEmits(['update:modelValue']);
         :type="type ?? 'text'"
         :id="id"
         :name="name"
-        placeholder=" "
+        :placeholder="placeholder"
         :disabled="disabled"
         :autocomplete="autocomplete"
         :model-value="modelValue"
@@ -59,8 +60,7 @@ div {
     outline-width: 2px;
   }
 
-  /* autoprefixer: ignore next */
-  &:focus-within > label, > input:not(:placeholder-shown) + label {
+  &:focus-within > label, > input:is(:not([value=""]), :placeholder-shown) + label {
     position: absolute;
     background: var(--box-color);
     top: 0;
