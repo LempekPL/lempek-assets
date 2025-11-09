@@ -10,7 +10,7 @@ defineProps<{
 
 <template>
   <transition name="fade">
-    <div class="bg" v-show="show" @click.self="onCancel">
+    <div class="bg" v-show="show" @mousedown.self="onCancel">
       <form class="big-box-menu" @submit.prevent="onSubmit">
         <slot/>
         <div class="bottom">

@@ -12,15 +12,14 @@ let changes = {
     "added changelog",
     "added logged in device list",
     "removed ability to upload files starting with '.'",
+    "fixed box disappearing when clicking inside the box and then moving cursor outside"
   ],
   "Version 1.0": [
     "created folders and files",
     "created ability to log in and out",
     "created two types of item display (grid and list)",
     "created folder navigation bar",
-    "added ability to create folders and files",
-    "added ability to rename folders and files",
-    "added ability to delete folders and files",
+    "added ability to create, rename and delete folders and files",
     "added password change",
   ]
 }
