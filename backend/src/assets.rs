@@ -1,9 +1,9 @@
-use crate::FILES_DIR;
 use crate::auth::{AuthUser, UserData};
 use crate::models::{ApiResponse, File, Folder};
-use crate::perms::{ApiResult, PermissionKind, check_permission};
+use crate::perms::{check_permission, ApiResult, PermissionKind};
+use crate::FILES_DIR;
 use rocket::form::Form;
-use rocket::{State, fs::TempFile, http::Status, post, serde::json::Json};
+use rocket::{fs::TempFile, http::Status, post, serde::json::Json, State};
 use serde::{Deserialize, Serialize};
 use sqlx::{Acquire, PgConnection, PgPool};
 use std::path::Path;
@@ -27,6 +27,13 @@ fn remove_last_path(s: &str) -> String {
 }
 
 fn check_name(name: &str) -> ApiResult<()> {
+    if name.len() == 0 {
+        return Err(ApiResponse::fail(
+            Status::Forbidden,
+            "Name cannot be empty",
+            None,
+        ));
+    }
     let invalid_chars = [
         '<', '>', ':', '"', '/', '\\', '|', '?', '*', ',', ';', '=', '(', ')', '&', '#', '\'',
     ];
@@ -307,10 +314,7 @@ pub async fn edit_folder(
 }
 
 #[get("/folders/all")]
-pub async fn get_all_folders(
-    pool: &State<PgPool>,
-    auth: AuthUser,
-) -> ApiResult<Json<Vec<Folder>>> {
+pub async fn get_all_folders(pool: &State<PgPool>, auth: AuthUser) -> ApiResult<Json<Vec<Folder>>> {
     let auth = auth?;
 
     let result = if auth.admin {
@@ -552,10 +556,7 @@ pub async fn upload_file<'a>(
 }
 
 #[get("/files/all")]
-pub async fn get_all_files(
-    pool: &State<PgPool>,
-    auth: AuthUser,
-) -> ApiResult<Json<Vec<File>>> {
+pub async fn get_all_files(pool: &State<PgPool>, auth: AuthUser) -> ApiResult<Json<Vec<File>>> {
     let auth = auth?;
 
     let result = if auth.admin {
@@ -692,11 +693,7 @@ pub struct EditFile {
 }
 
 #[patch("/file", format = "json", data = "<data>")]
-pub async fn edit_file(
-    data: Json<EditFile>,
-    pool: &State<PgPool>,
-    auth: AuthUser,
-) -> ApiResult {
+pub async fn edit_file(data: Json<EditFile>, pool: &State<PgPool>, auth: AuthUser) -> ApiResult {
     let auth = auth?;
     let mut tx = pool
         .begin()
