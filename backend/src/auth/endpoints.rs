@@ -279,7 +279,7 @@ pub struct RemoveTokenData {
     pub id: Uuid,
 }
 
-#[delete("/user/tokens", format = "json", data = "<data>")]
+#[delete("/user/token", format = "json", data = "<data>")]
 pub async fn remove_user_token(
     data: Json<RemoveTokenData>,
     user: AuthUser,

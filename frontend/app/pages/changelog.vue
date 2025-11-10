@@ -7,7 +7,7 @@ let changes = {
     "added more file icons",
     "changed login token from one jwt to access and refresh providing better security",
     "added ability for admins to create new users",
-    "added ability to drag and drop files on website to make it easier to upload files",
+    "added ability to drag and drop files on website to make it easier to upload multiple files",
     "added username change",
     "added changelog",
     "added logged in device list",
