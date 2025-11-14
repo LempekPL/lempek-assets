@@ -29,24 +29,28 @@ const FETCH_OPTIONS = {
   credentials: 'include',
   headers: {'Content-Type': 'application/json'},
   watch: [parentId, orderChoice],
+  lazy: true,
 };
 
 const {
   data: folders,
-  pending,
+  pending: foldersPending,
   error,
   refresh: refreshFolders
 } = await useFetch<Folder[]>(() => config.public.apiBase + `/folders?parent=${parentId.value ?? ''}&order=${orderChoice.value ?? ''}`, FETCH_OPTIONS as {});
 
 const {
   data: files,
+  pending: filesPending,
   refresh: refreshFiles
 } = await useFetch<File[]>(() => config.public.apiBase + `/files?parent=${parentId.value ?? ''}&order=${orderChoice.value ?? ''}`, FETCH_OPTIONS as {});
 
 const {
   data: folderPath,
+  pending: pathPending,
 } = await useFetch<UuidName[]>(() => config.public.apiBase + "/folder/path?id=" + (parentId.value ?? ''), FETCH_OPTIONS as {});
 
+const pending = computed(() => foldersPending.value || filesPending.value || pathPending.value);
 const menuRef = ref<InstanceType<typeof PartMiniMenu> | null>(null);
 const selectedItem = ref<Folder | File | null>(null);
 const selectedType = ref<'folder' | 'file' | null>(null);
@@ -186,43 +190,46 @@ useHead({
     </div>
   </div>
 
-    <transition name="item" mode="out-in">
-      <div v-if="error" class="error">
-        Error: {{ error.message }}
+  <transition name="item" mode="out-in">
+    <div v-if="error" class="error">
+      Error: {{ error.message }}
+    </div>
+
+    <div v-else-if="pending" class="main-box">
+      <div :class="viewType === 'grid' ? 'items-grid' : 'items-list'" style="overflow: hidden; height: calc(14rem * 3)">
+        <MainFakeItemBox v-for="number in 1000" :key="number"/>
+<!--        <p>Ładowanie folderów...</p>-->
       </div>
+    </div>
 
-      <div v-else-if="pending" class="default-box">
-        <div>
-          <p>Ładowanie folderów...</p>
-        </div>
+    <DragDropWrap :current="parentId" :on-success="handleSuccess"
+                  v-else-if="folders?.length === 0 && files?.length === 0"
+                  @contextmenu.prevent="openMenuBox($event)"
+                  class="default-box">
+      <div>
+        <p>Brak przedmiotów w tym folderze</p>
       </div>
+    </DragDropWrap>
 
-      <DragDropWrap :current="parentId" :on-success="handleSuccess" v-else-if="folders?.length === 0 && files?.length === 0"
-           @contextmenu.prevent="openMenuBox($event)"
-           class="default-box">
-        <div>
-          <p>Brak przedmiotów w tym folderze</p>
-        </div>
-      </DragDropWrap>
-
-      <DragDropWrap :current="parentId" :on-success="handleSuccess" v-else @contextmenu.prevent="openMenuBox($event)" class="main-box">
-        <div :class="viewType === 'grid' ? 'items-grid' : 'items-list'">
-          <MainItemBox
-              v-for="folder in folders" :key="folder.id"
-              @contextmenu.prevent.stop="openMenuBox($event, folder, 'folder')"
-              @dblclick="enterFolder(folder.id)"
-              :name="folder.name"
-              isFolder
-          />
-          <MainItemBox
-              v-for="file in files" :key="file.id"
-              @contextmenu.prevent.stop="openMenuBox($event, file, 'file')"
-              @dblclick="enterFile(file.name)"
-              :name="file.name"
-          />
-        </div>
-      </DragDropWrap>
-    </transition>
+    <DragDropWrap :current="parentId" :on-success="handleSuccess" v-else @contextmenu.prevent="openMenuBox($event)"
+                  class="main-box">
+      <div :class="viewType === 'grid' ? 'items-grid' : 'items-list'">
+        <MainItemBox
+            v-for="folder in folders" :key="folder.id"
+            @contextmenu.prevent.stop="openMenuBox($event, folder, 'folder')"
+            @dblclick="enterFolder(folder.id)"
+            :name="folder.name"
+            isFolder
+        />
+        <MainItemBox
+            v-for="file in files" :key="file.id"
+            @contextmenu.prevent.stop="openMenuBox($event, file, 'file')"
+            @dblclick="enterFile(file.name)"
+            :name="file.name"
+        />
+      </div>
+    </DragDropWrap>
+  </transition>
 
   <PartMiniMenu ref="menuRef" class="menu-part">
     <button v-if="selectedType == 'folder'" @click="() => {menuRef?.close(); enterFolder(selectedItem?.id as string)}">
