@@ -1,5 +1,3 @@
-BEGIN;
-
 CREATE TABLE users
 (
     id         UUID PRIMARY KEY     DEFAULT uuidv7(),
@@ -162,7 +160,3 @@ SELECT id, name
 FROM ancestors
 ORDER BY lvl DESC;
 $$;
-
-
-
-COMMIT;
