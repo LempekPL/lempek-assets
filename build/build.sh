@@ -52,14 +52,6 @@ cp .env "../$FRONTDIR"
 cp -r ./.output/* ../lempek-assets/frontend
 cd ..
 
-echo "Creating frontend starter..."
-cat > "$FRONTDIR/start.sh" <<'EOF'
-#!/bin/bash
-export PORT=${FRONTEND_PORT}
-node ./server/index.mjs
-EOF
-chmod +x "$FRONTDIR/start.sh"
-
 echo "Creating systemd setup script..."
 cat > "$WORKDIR/setup.sh" <<'EOF'
 #!/bin/bash
@@ -92,7 +84,8 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$(pwd)/frontend
-ExecStart=node ./server/index.mjs
+ExecStart=$(which node) $(pwd)/frontend/server/index.mjs
+Environment=PORT=${FRONTEND_PORT}
 User=$USER
 Restart=on-failure
 
@@ -107,6 +100,18 @@ sudo systemctl enable lempek-assets-front.service
 echo "Systemd services configured! Use 'sudo systemctl start lempek-assets-back lempek-assets-front' to launch them."
 EOF
 chmod +x "$WORKDIR/setup.sh"
+
+echo "Creating update script..."
+cat > "$WORKDIR/update.sh" <<'EOF'
+#!/bin/bash
+set -e
+
+rm -fr ./backend
+cp ./lempek-assets/backend ./backend
+rm -fr ./frontend
+cp ./lempek-assets/frontend ./frontend
+EOF
+chmod +x "$WORKDIR/update.sh"
 
 if [ "$NO_TAR" = false ]; then
   echo "Packing $WORKDIR into tar.gz..."

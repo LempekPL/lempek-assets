@@ -10,11 +10,12 @@
 1. Clone the project with `git clone https://github.com/LempekPL/lempek-assets.git`
 2. Edit values in main.env (see Configuring `.env` section below)
 3. Run `cd lempek-assets/build`
-4. Run the script `./build.sh [--no-tar]`\
+4. Run `chmod +x build.sh`
+5. Run the script `./build.sh [--no-tar]`\
 Use the optional --no-tar flag to skip archive generation.
-5. Wait for the build to complete.
-6. Move the generated archive (lempek-assets.tar.gz) to your deployment location.
-7. Extract the archive and run `./setup.sh`
+6. Wait for the build to complete.
+7. Move the generated archive (lempek-assets.tar.gz) to your deployment location.
+8. Extract the archive and run `./setup.sh`
 
 ## Configuring `.env`
 
@@ -25,7 +26,8 @@ the database itself must already exist to work properly
 
 
 - FILES_DIR\
-Directory where files will be physically stored
+Directory where files will be physically stored in relation to the backend binary\
+You can just use `../files` to have the files directory next to frontend and backend folders
 
 
 - JWT_SECRET\
