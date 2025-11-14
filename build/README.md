@@ -53,3 +53,7 @@ URL with the domain on where the assets will be hosted
 URL with the domain on where the api will be hosted
 
 
+- PUBLIC_FRONTEND_URL\
+  URL with the domain on where the website will be hosted
+
+

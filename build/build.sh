@@ -12,6 +12,7 @@ set -a
 source ./main.env
 set +a
 
+cd ..
 WORKDIR="lempek-assets"
 FRONTDIR="$WORKDIR/frontend"
 BACKDIR="$WORKDIR/backend"
@@ -21,7 +22,7 @@ rm -rf "$WORKDIR"
 mkdir -p "$FRONTDIR" "$BACKDIR"
 
 echo "Building backend..."
-cd ../backend
+cd ./backend
 cargo build --release
 
 echo "Copying backend binary..."
@@ -29,7 +30,7 @@ cat > .env <<EOF
 DATABASE_URL=${DATABASE_URL}
 JWT_SECRET=${JWT_SECRET}
 FILES_DIR=${FILES_DIR}
-ALLOWED_ORIGIN=http://localhost:${FRONTEND_PORT}
+ALLOWED_ORIGIN=${PUBLIC_FRONTEND_URL}
 ROCKET_PORT=${BACKEND_PORT}
 ROCKET_SECRET_KEY=${SECRET_KEY}
 EOF
@@ -54,19 +55,10 @@ cd ..
 echo "Creating frontend starter..."
 cat > "$FRONTDIR/start.sh" <<'EOF'
 #!/bin/bash
-source .env
-export PORT=${FRONT_PORT:-7002}
-npx serve -l $PORT .
+export PORT=${FRONTEND_PORT}
+node ./server/index.mjs
 EOF
 chmod +x "$FRONTDIR/start.sh"
-
-echo "Creating backend start.sh..."
-cat > "$BACKDIR/start.sh" <<'EOF'
-#!/bin/bash
-source .env
-./lempek-assets-backend
-EOF
-chmod +x "$BACKDIR/start.sh"
 
 echo "Creating systemd setup script..."
 cat > "$WORKDIR/setup.sh" <<'EOF'
@@ -76,7 +68,7 @@ set -e
 # Backend systemd
 sudo tee /etc/systemd/system/lempek-assets-back.service > /dev/null <<SERVICE
 [Unit]
-Description=Asset Lempek Backend
+Description=Lempek Assets Backend
 After=network.target
 
 [Service]
@@ -94,14 +86,13 @@ SERVICE
 # Frontend systemd
 sudo tee /etc/systemd/system/lempek-assets-front.service > /dev/null <<SERVICE
 [Unit]
-Description=Asset Lempek Frontend
+Description=Lempek Assets Frontend
 After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory=$(pwd)/frontend
 ExecStart=node ./server/index.mjs
-EnvironmentFile=$(pwd)/frontend/.env
 User=$USER
 Restart=on-failure
 
