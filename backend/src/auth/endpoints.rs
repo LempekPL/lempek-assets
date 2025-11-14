@@ -453,7 +453,7 @@ pub async fn create_user(
         ));
     }
 
-    if trimmed_login.is_ascii() {
+    if !trimmed_login.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(ApiResponse::fail(
             Status::BadRequest,
             "login can use only letters and numbers",
