@@ -29,15 +29,16 @@ onBeforeUnmount(() => {
 <template>
   <div class="inner-box">
     <nav>
-      <a href="/" class="title">
+      <nuxt-link href="/" class="title">
         <IconAssetBlue/>
-        <p>AS</p></a>
+        <p>AS</p>
+      </nuxt-link>
       <div class="flex-fill"/>
       <div class="buttons">
         <nuxt-link href="/changelog" tabindex="-1">
           <PartButton>Changelog</PartButton>
         </nuxt-link>
-        <p v-if="auth.loading">Ładowanie...</p>
+        <PartButton v-if="auth.loading" class="fake-button" disabled="disabled"><div/></PartButton>
         <template v-else>
           <template v-if="auth.isAuthenticated">
             <PartButton @click="profileMenu = !profileMenu" ref="buttonOpenRef">{{ auth.user.username }}</PartButton>
@@ -52,7 +53,7 @@ onBeforeUnmount(() => {
 
       <transition name="profile-menu" mode="out-in">
         <div v-show="profileMenu" class="profile-menu">
-          <RouterLink :to="{path: '/profile'}">Profil</RouterLink>
+          <nuxt-link href="/profile">Profil</nuxt-link>
           <button @click="logout" style="background: var(--red-button-color)">Wyloguj się</button>
         </div>
       </transition>
@@ -61,6 +62,23 @@ onBeforeUnmount(() => {
 </template>
 
 <style lang="scss" scoped>
+.fake-button {
+  width: 7rem;
+  position: relative;
+
+  div {
+    content: "";
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    bottom: 1rem;
+    right: 1rem;
+    background: gray;
+    border-radius: 9999rem;
+    animation: loading-shimmer 1.5s infinite;
+  }
+}
+
 .inner-box {
   padding: 1rem;
   width: 100%;
