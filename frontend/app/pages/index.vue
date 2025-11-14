@@ -226,6 +226,7 @@ useHead({
             @contextmenu.prevent.stop="openMenuBox($event, file, 'file')"
             @dblclick="enterFile(file.name)"
             :name="file.name"
+            :author="file.owner_name"
         />
       </div>
     </DragDropWrap>

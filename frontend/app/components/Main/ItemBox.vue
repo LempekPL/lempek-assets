@@ -1,9 +1,10 @@
 <script setup lang="ts">
 const props = defineProps<{
   isFolder?: boolean,
-  name: string
+  name: string,
+  author?: string
 }>();
-//"material-symbols:" +
+
 const LIST_OF_ICONS: [string[], string][] = [
   [["png", "jpg", "jpeg", "gif", "webp"], "material-symbols:imagesmode-rounded"],
   [["mov", "mp4", "webm", "mkv"], "material-symbols:video-library-rounded"],
@@ -30,7 +31,10 @@ const iconName = computed<string>(() => {
 <template>
   <div class="item" :title="name">
     <Icon class="icon" :name="iconName"/>
-    <p>{{ name }}</p>
+    <div>
+      <p class="name">{{ name }}</p>
+      <p class="author">{{ author }}</p>
+    </div>
   </div>
 </template>
 
@@ -45,7 +49,6 @@ const iconName = computed<string>(() => {
   flex-direction: column;
   justify-content: space-between;
   align-items: center;
-  gap: 2rem;
   text-align: center;
   cursor: pointer;
 
@@ -57,13 +60,27 @@ const iconName = computed<string>(() => {
     padding: 3rem;
   }
 
-  p {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
-    line-height: 1;
-    padding-bottom: 4px;
+  div {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+
+    p {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+      line-height: 1;
+    }
+
+    p.name {
+      padding-bottom: 4px;
+    }
+
+    p.author {
+      font-size: .75rem;
+    }
   }
+
 }
 </style>

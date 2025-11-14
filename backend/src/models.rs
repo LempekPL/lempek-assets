@@ -1,11 +1,11 @@
+use chrono::NaiveDateTime;
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use sqlx::types::chrono::{DateTime, Utc};
+use sqlx::FromRow;
 use std::error::Error;
 use std::panic::Location;
-use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -121,7 +121,7 @@ pub struct Folder {
     pub updated_at: DateTime<Utc>,
 }
 
- #[derive(FromRow, Serialize, Debug, Clone)]
+#[derive(FromRow, Serialize, Debug, Clone)]
 pub struct File {
     pub id: Uuid,
     pub folder_id: Option<Uuid>,

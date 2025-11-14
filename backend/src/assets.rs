@@ -5,9 +5,10 @@ use crate::FILES_DIR;
 use rocket::form::Form;
 use rocket::{fs::TempFile, http::Status, post, serde::json::Json, State};
 use serde::{Deserialize, Serialize};
-use sqlx::{Acquire, PgConnection, PgPool};
+use sqlx::{Acquire, FromRow, PgConnection, PgPool};
 use std::path::Path;
 use std::{fs, path::PathBuf};
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 async fn get_folder_path(tx: &mut PgConnection, id: Option<Uuid>) -> ApiResult<String> {
@@ -589,21 +590,33 @@ pub async fn get_all_files(pool: &State<PgPool>, auth: AuthUser) -> ApiResult<Js
     Ok(Json(result))
 }
 
+#[derive(FromRow, Serialize, Debug, Clone)]
+pub struct FileData {
+    pub id: Uuid,
+    pub folder_id: Option<Uuid>,
+    pub owner_id: Uuid,
+    pub owner_name: String,
+    pub name: String,
+    pub size: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 #[get("/files?<parent>&<order>")]
 pub async fn get_files(
     parent: Option<Uuid>,
     order: Option<String>,
     pool: &State<PgPool>,
     auth: AuthUser,
-) -> ApiResult<Json<Vec<File>>> {
+) -> ApiResult<Json<Vec<FileData>>> {
     let auth = auth?;
     let order_sql = get_ord(order);
 
     let result = if auth.admin {
-        sqlx::query_as::<_, File>(&format!(
+        sqlx::query_as::<_, FileData>(&format!(
             r#"
-            SELECT f.id, f.folder_id, f.owner_id, f.name, f.size, f.created_at, f.updated_at
-            FROM files f
+            SELECT f.id, f.folder_id, f.owner_id, u.username AS owner_name, f.name, f.size, f.created_at, f.updated_at
+            FROM files f INNER JOIN users u ON f.owner_id = u.id
             WHERE f.folder_id IS NOT DISTINCT FROM $1
             ORDER BY {}
         "#,
@@ -613,11 +626,12 @@ pub async fn get_files(
         .fetch_all(pool.inner())
         .await
     } else {
-        sqlx::query_as::<_, File>(&format!(
+        sqlx::query_as::<_, FileData>(&format!(
             r#"
-            SELECT f.id, f.folder_id, f.owner_id, f.name, f.size, f.created_at, f.updated_at
+            SELECT f.id, f.folder_id, f.owner_id, u.username AS owner_name, f.name, f.size, f.created_at, f.updated_at
             FROM files f
             JOIN permissions p ON p.folder_id IS NOT DISTINCT FROM f.folder_id
+            FROM files f INNER JOIN users u ON f.owner_id = u.id
             WHERE p.user_id = $1
               AND p.read = TRUE
               AND f.folder_id IS NOT DISTINCT FROM $2
