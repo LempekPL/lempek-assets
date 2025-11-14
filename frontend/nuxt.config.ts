@@ -10,7 +10,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       apiBase: process.env.BACKEND_URL || 'http://localhost:7001/api',
-      filePath: process.env.ASSETS_URL || `file:///${process.cwd()}/../files/`,
+      filePath: process.env.ASSETS_URL || "http://localhost:7002",
     }
   },
   devServer: {

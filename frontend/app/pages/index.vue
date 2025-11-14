@@ -100,10 +100,11 @@ function enterFolder(id: string | null) {
 async function enterFile(fileName: string) {
   const response = await $fetch<UuidName[]>(`${config.public.apiBase}/folder/path?id=${parentId.value ?? ''}`, FETCH_OPTIONS as {});
   const joinedPath = response.map(item => item.name).filter(Boolean).join("/");
-  let loc = config.public.filePath;
+  let base = new URL(config.public.filePath);
   if (joinedPath)
-    loc += joinedPath + "/";
-  window.location.href = loc + fileName;
+    base = new URL(joinedPath + '/', base);
+  const fileUrl = new URL(fileName, base);
+  window.location.href = fileUrl.toString();
 }
 
 function handleSuccess() {
@@ -549,10 +550,6 @@ useHead({
 
 .error {
   color: #dc3545;
-}
-
-.dragged {
-
 }
 
 .item-enter-active, .item-leave-active {
