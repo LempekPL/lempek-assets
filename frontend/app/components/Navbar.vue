@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {useAuthStore} from "~/stores/auth.js";
+import type {PartButton} from "#components";
 
 const auth = useAuthStore()
 
@@ -10,10 +11,10 @@ const logout = async () => {
 }
 
 const profileMenu = ref(false);
-const buttonOpenRef = ref(null);
+const buttonOpenRef = ref<InstanceType<typeof PartButton> | null>(null);
 
 function handleClickOutside(event: MouseEvent) {
-  if (!buttonOpenRef.value.button.contains(event.target as Node)) {
+  if (!buttonOpenRef.value?.button?.contains(event.target as Node)) {
     profileMenu.value = false;
   }
 }
@@ -35,13 +36,13 @@ onBeforeUnmount(() => {
       </nuxt-link>
       <div class="flex-fill"/>
       <div class="buttons">
-        <nuxt-link href="/changelog" tabindex="-1">
+        <nuxt-link href="/changelog" tabindex="-1" class="z-button">
           <PartButton>Changelog</PartButton>
         </nuxt-link>
-        <PartButton v-if="auth.loading" class="fake-button" disabled="disabled"><div/></PartButton>
+        <PartButton v-if="auth.loading" class="fake-button z-button" disabled="disabled"><div/></PartButton>
         <template v-else>
           <template v-if="auth.isAuthenticated">
-            <PartButton @click="profileMenu = !profileMenu" ref="buttonOpenRef">{{ auth.user.username }}</PartButton>
+            <PartButton @click="profileMenu = !profileMenu" ref="buttonOpenRef" class="z-button">{{ auth.user.username }}</PartButton>
           </template>
           <template v-else>
             <nuxt-link href="/login" tabindex="-1">
@@ -84,10 +85,14 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
+.z-button {
+  z-index: 111;
+}
+
 .profile-menu {
   position: absolute;
   top: calc(100% - 1rem);
-  right: 0;
+  right: calc(2rem);
   display: flex;
   flex-direction: column;
   z-index: 11;

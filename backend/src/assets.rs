@@ -93,13 +93,13 @@ fn check_name(name: &str) -> ApiResult<()> {
 
 fn get_ord(order: Option<String>) -> &'static str {
     match order.as_deref() {
-        Some("name_asc") => "f.name ASC",
-        Some("name_desc") => "f.name DESC",
+        Some("name_asc") => "LOWER(f.name) ASC, f.name ASC",
+        Some("name_desc") => "LOWER(f.name) DESC, f.name DESC",
         Some("created_asc") => "f.created_at ASC",
         Some("created_desc") => "f.created_at DESC",
         Some("updated_asc") => "f.updated_at ASC",
         Some("updated_desc") => "f.updated_at DESC",
-        None | _ => "f.name ASC",
+        None | _ => "LOWER(f.name) ASC, f.name ASC",
     }
 }
 

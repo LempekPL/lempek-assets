@@ -2,26 +2,32 @@
 <script setup lang="ts">
 import PartMiniMenu from "~/components/part/MiniMenu.vue";
 import type {Folder, File, UuidName} from "~~/types/api";
+
+type FileData = File & {
+  owner_name: string;
+};
 import {useRouter} from 'vue-router';
 
 const router = useRouter();
 const route = useRoute();
 const parentId = computed(() => route.query.parent as string | null);
-const orderInfo = computed(() => route.query.order as string | null);
 const config = useRuntimeConfig();
 const viewType = ref<'grid' | 'list'>('grid');
 type OrderTypes = 'name_asc' | 'name_desc' | 'created_asc' | 'created_desc' | 'updated_asc' | 'updated_desc';
-const orderChoice = ref<OrderTypes>(orderInfo.value as OrderTypes);
+const orderChoice = ref<OrderTypes>('name_asc');
 const showOrderMenu = ref<boolean>(false);
 const orderMenuRef = ref<HTMLElement | null>(null);
 const openOrderMenuRef = ref<HTMLElement | null>(null);
 
 
-const VALID_ORDERS: OrderTypes[] = [
-  'name_asc', 'name_desc',
-  'created_asc', 'created_desc',
-  'updated_asc', 'updated_desc'
-];
+const VALID_ORDERS: Record<OrderTypes, string> = {
+  'name_asc': "Nazwa A-Z",
+  'name_desc': "Nazwa Z-A",
+  'created_asc': "Aktualizacja najstarsze",
+  'created_desc': "Aktualizacja najnowsze",
+  'updated_asc': "Utworzenie najstarsze",
+  'updated_desc': "Utworzenie najnowsze"
+};
 const DISPLAY_STORAGE = 'view-type';
 const ORDER_STORAGE = 'order-type';
 const FETCH_OPTIONS = {
@@ -43,7 +49,7 @@ const {
   data: files,
   pending: filesPending,
   refresh: refreshFiles
-} = await useFetch<File[]>(() => config.public.apiBase + `/files?parent=${parentId.value ?? ''}&order=${orderChoice.value ?? ''}`, FETCH_OPTIONS as {});
+} = await useFetch<FileData[]>(() => config.public.apiBase + `/files?parent=${parentId.value ?? ''}&order=${orderChoice.value ?? ''}`, FETCH_OPTIONS as {});
 
 const {
   data: folderPath,
@@ -80,9 +86,10 @@ onMounted(() => {
     viewType.value = saved;
   }
   const savedOrder = localStorage.getItem(ORDER_STORAGE) as OrderTypes | null;
-  if (savedOrder && VALID_ORDERS.includes(savedOrder)) {
+  if (savedOrder && Object.keys(VALID_ORDERS).includes(savedOrder)) {
     orderChoice.value = savedOrder;
   }
+
 });
 onBeforeUnmount(() => {
   window.removeEventListener('mousedown', handleClickOutside);
@@ -129,10 +136,11 @@ const head_title = computed(() => {
 })
 
 watch(viewType, (val) => {
-  localStorage.setItem(ORDER_STORAGE, val);
+  localStorage.setItem(DISPLAY_STORAGE, val);
 });
 watch(orderChoice, (val) => {
-  localStorage.setItem(ORDER_STORAGE, val);
+  if (val)
+    localStorage.setItem(ORDER_STORAGE, val);
 });
 
 useHead({
@@ -163,24 +171,13 @@ useHead({
           <span>Sortuj po</span></button>
         <transition name="order-option" mode="out-in">
           <div ref="orderMenuRef" v-show="showOrderMenu" class="sorting-options">
-            <button @click="orderChoice = 'name_asc'"
-                    :style="{fontWeight: orderChoice === 'name_asc' ? 'bold' : 'normal'}">Nazwa A-Z
-            </button>
-            <button @click="orderChoice = 'name_desc'"
-                    :style="{fontWeight: orderChoice === 'name_desc' ? 'bold' : 'normal'}">Nazwa Z-A
-            </button>
-            <button @click="orderChoice = 'updated_asc'"
-                    :style="{fontWeight: orderChoice === 'updated_asc' ? 'bold' : 'normal'}">Aktualizacja najstarsze
-            </button>
-            <button @click="orderChoice = 'updated_desc'"
-                    :style="{fontWeight: orderChoice === 'updated_desc' ? 'bold' : 'normal'}">Aktualizacja najnowsze
-            </button>
-            <button @click="orderChoice = 'created_asc'"
-                    :style="{fontWeight: orderChoice === 'created_asc' ? 'bold' : 'normal'}">Utworzenie najstarsze
-            </button>
-            <button @click="orderChoice = 'created_desc'"
-                    :style="{fontWeight: orderChoice === 'created_desc' ? 'bold' : 'normal'}">Utworzenie najnowsze
-            </button>
+            <MainOrderButton
+                v-for="orderButton in Object.keys(VALID_ORDERS) as OrderTypes[]"
+                :key="orderButton"
+                @click="orderChoice = orderButton"
+                :selected="orderChoice === orderButton">
+              {{ VALID_ORDERS[orderButton] }}
+            </MainOrderButton>
           </div>
         </transition>
       </div>
@@ -199,7 +196,6 @@ useHead({
     <div v-else-if="pending" class="main-box">
       <div :class="viewType === 'grid' ? 'items-grid' : 'items-list'" style="overflow: hidden; height: calc(14rem * 3)">
         <MainFakeItemBox v-for="number in 1000" :key="number"/>
-<!--        <p>Ładowanie folderów...</p>-->
       </div>
     </div>
 
@@ -376,6 +372,7 @@ useHead({
       border: none;
       font-size: 1rem;
       z-index: 9;
+      border: #fff7 solid 1px;
 
       .order-icon {
         transition: 150ms;
@@ -389,48 +386,19 @@ useHead({
       &:hover {
         filter: brightness(75%);
       }
+
     }
 
     .sorting-options {
       display: flex;
       flex-direction: column;
       position: absolute;
-      top: calc(100% + 1rem);
+      top: calc(100%);
       left: 0;
       width: 100%;
-      box-shadow: #000 0 .5rem 1rem;
+      box-shadow: #000f 0 .5rem 1rem;
       border-radius: 1rem;
       z-index: 8;
-      border: #fff7 solid 1px;
-
-      > * {
-        background: var(--box-color);
-        padding: 1rem;
-        cursor: pointer;
-        border: none;
-        font-size: 1rem;
-        color: var(--text-color);
-
-        .selected {
-          filter: brightness(50%);
-        }
-
-        &:first-child {
-          border-radius: 1rem 1rem 0 0;
-        }
-
-        &:last-child {
-          border-radius: 0 0 1rem 1rem;
-        }
-
-        &:hover {
-          filter: brightness(75%);
-        }
-
-        &:active {
-          filter: brightness(50%);
-        }
-      }
     }
   }
 
