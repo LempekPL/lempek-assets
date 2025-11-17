@@ -3,6 +3,13 @@
 import HeaderBox from "~/components/HeaderBox.vue";
 
 let changes = {
+  "Version 2.1": [
+    "added loading skeletons",
+    "added author display name to files",
+    "added proper 404 error page",
+    "fixed sorting from a to z being from A to Z and then a to z",
+    "fixed order not showing when not selected at the start"
+  ],
   "Version 2.0": [
     "added more file icons",
     "changed login token from one jwt to access and refresh providing better security",
