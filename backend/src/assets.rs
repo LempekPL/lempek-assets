@@ -629,9 +629,8 @@ pub async fn get_files(
         sqlx::query_as::<_, FileData>(&format!(
             r#"
             SELECT f.id, f.folder_id, f.owner_id, u.username AS owner_name, f.name, f.size, f.created_at, f.updated_at
-            FROM files f
-            JOIN permissions p ON p.folder_id IS NOT DISTINCT FROM f.folder_id
             FROM files f INNER JOIN users u ON f.owner_id = u.id
+            INNER JOIN permissions p ON p.folder_id IS NOT DISTINCT FROM f.folder_id
             WHERE p.user_id = $1
               AND p.read = TRUE
               AND f.folder_id IS NOT DISTINCT FROM $2
