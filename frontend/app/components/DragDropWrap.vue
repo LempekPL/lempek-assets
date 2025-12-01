@@ -11,23 +11,15 @@ type FileTransfer = {
   status: 'success' | 'none'
 }
 
-const isDragOver = ref(false);
+const isDragOver = computed(() => dragAmount.value > 0);
+const dragAmount = ref(0);
 const addFileBox = ref(false);
 const loading = ref(false);
 const files = reactive<FileTransfer[]>([]);
 
-function onDragOver(event: DragEvent) {
-  event.preventDefault();
-  isDragOver.value = true;
-}
-
-function onDragLeave(_event: DragEvent) {
-  isDragOver.value = false;
-}
-
 function onDrop(event: DragEvent) {
   event.preventDefault();
-  isDragOver.value = false;
+  dragAmount.value = 0;
   const fil = event.dataTransfer?.files;
   if (fil && fil.length > 0) {
     for (const file of fil) {
@@ -114,8 +106,9 @@ async function onSubmit() {
 
 <template>
   <div
-      @dragover="onDragOver"
-      @dragleave="onDragLeave"
+      @dragover="(e) => e.preventDefault()"
+      @dragleave="dragAmount--"
+      @dragenter="dragAmount++"
       @drop="onDrop"
       :class="{ 'drag-over': isDragOver }"
       class="drop-area"
@@ -138,7 +131,8 @@ async function onSubmit() {
         <div class="name-box">
           <PartInput :id="'name-'+(num+1)" :name="'Plik '+(num+1)"
                      :placeholder="file.file.name" v-model="file.name" style="width: 100%;"/>
-          <PartProgress v-if="loading" class="progress-bar" :value="file.progress" :max="100" :text="file.progress.toFixed(1)+'%'" bg-color="#aaa"
+          <PartProgress v-if="loading" class="progress-bar" :value="file.progress" :max="100"
+                        :text="file.progress.toFixed(1)+'%'" bg-color="#aaa"
                         color="var(--accent-color)"/>
         </div>
         <BoxError v-if="file.error && !file.error.success" :message="file.error"/>

@@ -3,6 +3,9 @@
 import HeaderBox from "~/components/HeaderBox.vue";
 
 let changes = {
+  "Version 2.2": [
+    "fixed screen flickering when moving files over the items"
+  ],
   "Version 2.1": [
     "added loading skeletons",
     "added author display name to files",
