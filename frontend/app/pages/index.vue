@@ -320,7 +320,6 @@ useHead({
     width: 90%;
 
     & > .box {
-      line-height: 1;
       background: var(--box-color);
       border-radius: .5rem;
       padding: 1rem;
@@ -342,7 +341,8 @@ useHead({
       text-overflow: ellipsis;
       overflow: hidden;
       white-space: nowrap;
-
+      height: 100%;
+      align-content: center;
 
       &:hover {
         text-decoration: underline;
@@ -369,10 +369,11 @@ useHead({
       background: var(--box-color);
       border-radius: .5rem;
       padding: 1rem;
-      border: none;
       font-size: 1rem;
       z-index: 9;
       border: #fff7 solid 1px;
+      height: 100%;
+      align-items: center;
 
       .order-icon {
         transition: 150ms;
