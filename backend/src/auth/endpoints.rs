@@ -11,6 +11,7 @@ use rocket::State;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::net::IpAddr;
+use std::time::Duration;
 
 #[derive(Serialize, Deserialize)]
 pub struct LoginData {
@@ -45,9 +46,13 @@ async fn login_cookie(
             "http://ip-api.com/json/{}?fields=city,regionName,country",
             user_ip
         );
-        let resp = reqwest::Client::new().get(&url).send().await.map_err(|e| {
-            ApiResponse::fail(Status::InternalServerError, "request error", Some(&e))
-        })?;
+        let resp = reqwest::Client::new()
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| {
+                ApiResponse::fail(Status::InternalServerError, "request error", Some(&e))
+            })?;
         resp.json().await.map_err(|e| {
             ApiResponse::fail(Status::InternalServerError, "request error", Some(&e))
         })?
@@ -149,7 +154,10 @@ pub async fn login(
     }
 }
 
-async fn remove_current_refresh_token(cookies: &CookieJar<'_>, pool: &State<PgPool>) -> ApiResult<()> {
+async fn remove_current_refresh_token(
+    cookies: &CookieJar<'_>,
+    pool: &State<PgPool>,
+) -> ApiResult<()> {
     let refresh_token = cookies
         .get_private("refresh_token")
         .map(|cookie| cookie.value().to_string());
@@ -372,11 +380,16 @@ pub async fn change_password(
 #[derive(Deserialize)]
 pub struct ChangeUsernameData {
     password: String,
-    new_username: String
+    new_username: String,
 }
 
 #[patch("/user/username", format = "json", data = "<data>")]
-pub async fn change_username(data: Json<ChangeUsernameData>, cookie: &CookieJar<'_>, pool: &State<PgPool>, user: AuthUser) -> ApiResult {
+pub async fn change_username(
+    data: Json<ChangeUsernameData>,
+    cookie: &CookieJar<'_>,
+    pool: &State<PgPool>,
+    user: AuthUser,
+) -> ApiResult {
     let user = user?;
 
     if data.password.is_empty() {
@@ -411,14 +424,15 @@ pub async fn change_username(data: Json<ChangeUsernameData>, cookie: &CookieJar<
         ));
     }
 
-    let user_data = sqlx::query_as!(User,
+    let user_data = sqlx::query_as!(
+        User,
         "UPDATE users SET username = $1 WHERE id = $2 RETURNING *",
         data.new_username,
         user.user_id
     )
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
     tx.commit()
         .await
@@ -433,7 +447,7 @@ pub async fn change_username(data: Json<ChangeUsernameData>, cookie: &CookieJar<
 #[derive(Deserialize)]
 pub struct CreateUserData {
     login: String,
-    password: String
+    password: String,
 }
 
 #[post("/user/create", format = "json", data = "<data>")]
@@ -488,9 +502,9 @@ pub async fn create_user(
         trimmed_login,
         hashed_password
     )
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
     sqlx::query!("INSERT INTO permissions (user_id) VALUES ($1)", user.id)
         .execute(&mut *tx)
@@ -518,10 +532,26 @@ impl<'r> FromRequest<'r> for UserAgentIp {
             .headers()
             .get_one("User-Agent")
             .map(|s| s.to_string());
-        let client_ip = request.client_ip();
+        let client_ip = extract_client_ip(request);
         Outcome::Success(UserAgentIp {
             user_agent,
             client_ip,
         })
     }
+}
+
+fn extract_client_ip(request: &Request<'_>) -> Option<IpAddr> {
+    let headers = request.headers();
+
+    if let Some(ip) = headers.get_one("CF-Connecting-IP") &&
+        let Ok(ip) = ip.parse() {
+        return Some(ip);
+    }
+
+    if let Some(ip) = headers.get_one("x-forwarded-for") &&
+        let Ok(ip) = ip.parse() {
+        return Some(ip);
+    }
+
+    request.client_ip()
 }
