@@ -1,6 +1,6 @@
 use crate::auth::*;
 use crate::models::{ApiResponse, User, UserToken};
-use crate::perms::ApiResult;
+use crate::ApiResult;
 use crate::REFRESH_TOKEN_TIME;
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -46,13 +46,9 @@ async fn login_cookie(
             "http://ip-api.com/json/{}?fields=city,regionName,country",
             user_ip
         );
-        let resp = reqwest::Client::new()
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| {
-                ApiResponse::fail(Status::InternalServerError, "request error", Some(&e))
-            })?;
+        let resp = reqwest::Client::new().get(&url).send().await.map_err(|e| {
+            ApiResponse::fail(Status::InternalServerError, "request error", Some(&e))
+        })?;
         resp.json().await.map_err(|e| {
             ApiResponse::fail(Status::InternalServerError, "request error", Some(&e))
         })?
@@ -543,13 +539,15 @@ impl<'r> FromRequest<'r> for UserAgentIp {
 fn extract_client_ip(request: &Request<'_>) -> Option<IpAddr> {
     let headers = request.headers();
 
-    if let Some(ip) = headers.get_one("CF-Connecting-IP") &&
-        let Ok(ip) = ip.parse() {
+    if let Some(ip) = headers.get_one("CF-Connecting-IP")
+        && let Ok(ip) = ip.parse()
+    {
         return Some(ip);
     }
 
-    if let Some(ip) = headers.get_one("x-forwarded-for") &&
-        let Ok(ip) = ip.parse() {
+    if let Some(ip) = headers.get_one("x-forwarded-for")
+        && let Ok(ip) = ip.parse()
+    {
         return Some(ip);
     }
 

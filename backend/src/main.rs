@@ -8,9 +8,12 @@ mod models;
 mod perms;
 
 use crate::cors::Cors;
+use crate::models::ApiResponse;
 use chrono::Duration;
 use db::connect_db;
 use dotenvy::dotenv;
+use rocket::http::Status;
+use rocket::serde::json::Json;
 use rocket::Config;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -20,6 +23,8 @@ const ACCESS_TOKEN_TIME: Duration = Duration::minutes(5);
 const REFRESH_TOKEN_TIME: Duration = Duration::days(30);
 
 static FILES_DIR: OnceLock<String> = OnceLock::new();
+
+pub type ApiResult<T = (Status, Json<ApiResponse>)> = Result<T, (Status, Json<ApiResponse>)>;
 
 #[launch]
 async fn rocket() -> _ {
@@ -58,14 +63,18 @@ async fn rocket() -> _ {
                 assets::create_folder,
                 assets::delete_folder,
                 assets::edit_folder,
+                assets::move_folder,
+                assets::get_folder,
                 assets::get_all_folders,
                 assets::get_folders_path,
                 assets::get_folders,
+
                 assets::upload_file,
                 assets::get_all_files,
                 assets::get_files,
                 assets::delete_file,
                 assets::edit_file,
+                assets::move_file,
             ],
         )
 }

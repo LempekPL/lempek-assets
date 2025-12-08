@@ -29,7 +29,7 @@ const iconName = computed<string>(() => {
 </script>
 
 <template>
-  <div class="item" :title="name">
+  <div class="item" :title="name" draggable="true">
     <Icon class="icon" :name="iconName"/>
     <div>
       <p class="name">{{ name }}</p>

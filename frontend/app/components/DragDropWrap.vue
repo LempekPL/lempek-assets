@@ -10,6 +10,7 @@ type FileTransfer = {
   progress: number
   status: 'success' | 'none'
 }
+const { isFileDrag } = useDragEvents();
 
 const isDragOver = computed(() => dragAmount.value > 0);
 const dragAmount = ref(0);
@@ -18,6 +19,7 @@ const loading = ref(false);
 const files = reactive<FileTransfer[]>([]);
 
 function onDrop(event: DragEvent) {
+  if (!isFileDrag(event)) return;
   event.preventDefault();
   dragAmount.value = 0;
   const fil = event.dataTransfer?.files;
@@ -107,8 +109,8 @@ async function onSubmit() {
 <template>
   <div
       @dragover="(e) => e.preventDefault()"
-      @dragleave="dragAmount--"
-      @dragenter="dragAmount++"
+      @dragleave="(e) => {if (isFileDrag(e)) dragAmount--}"
+      @dragenter="(e) => {if (isFileDrag(e)) dragAmount++}"
       @drop="onDrop"
       :class="{ 'drag-over': isDragOver }"
       class="drop-area"

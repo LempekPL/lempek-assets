@@ -18,7 +18,13 @@ const orderChoice = ref<OrderTypes>('name_asc');
 const showOrderMenu = ref<boolean>(false);
 const orderMenuRef = ref<HTMLElement | null>(null);
 const openOrderMenuRef = ref<HTMLElement | null>(null);
+const {isFileDrag} = useDragEvents();
 
+const draggedItem = ref<string | null>(null);
+const draggedItemParent = ref<string | null>(null);
+const draggedType = ref<'file' | 'folder'>('file');
+const droppedItem = ref<string | null | undefined>(undefined);
+const droppedItemAmount = ref(0);
 
 const VALID_ORDERS: Record<OrderTypes, string> = {
   'name_asc': "Nazwa A-Z",
@@ -97,7 +103,8 @@ onBeforeUnmount(() => {
 
 const addFolderBox = ref(false);
 const deleteFolderBox = ref(false);
-const editFolderBox = ref(false);
+const editItemBox = ref(false);
+const moveItemBox = ref(false);
 const addFileBox = ref(false);
 
 function enterFolder(id: string | null) {
@@ -117,7 +124,8 @@ async function enterFile(fileName: string) {
 function handleSuccess() {
   addFolderBox.value = false;
   deleteFolderBox.value = false;
-  editFolderBox.value = false;
+  editItemBox.value = false;
+  moveItemBox.value = false;
   addFileBox.value = false;
   refreshFolders();
   refreshFiles();
@@ -146,15 +154,94 @@ watch(orderChoice, (val) => {
 useHead({
   title: head_title
 })
+
+async function copyText(text: string | null) {
+  if (!text) return;
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+  } else {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+  }
+}
+
+
+function dragItemEnter(e: DragEvent, folderId: string | null | undefined) {
+  if (draggedItem.value && draggedItem.value !== folderId) {
+    droppedItemAmount.value++;
+    if (!isFileDrag(e)) {
+      droppedItem.value = folderId
+    }
+  }
+}
+
+function dragItemLeave(e: DragEvent, folderId: string | null | undefined) {
+  if (draggedItem.value && draggedItem.value !== folderId) {
+    droppedItemAmount.value--;
+    if (!isFileDrag(e) && droppedItemAmount.value === 0) {
+      droppedItem.value = undefined
+    }
+  }
+}
+
+function dragItemStart(_e: DragEvent, item: Folder | File, type: 'folder' | 'file') {
+  draggedItem.value = item.id;
+  draggedType.value = type;
+  draggedItemParent.value = type === 'folder' ? item.parent_id : item.folder_id;
+}
+
+function dragItemDrop(_e: DragEvent) {
+  console.log(`dragging (${draggedType.value}) ${draggedItem.value} from ${draggedItemParent.value} to (folder) ${droppedItem.value}`);
+  if (droppedItem.value !== undefined && draggedItemParent.value !== droppedItem.value) {
+    moveItemBox.value = true;
+  }
+  if (draggedItemParent.value === droppedItem.value) {
+    dragItemCancel();
+  }
+}
+
+function dragItemCancel() {
+  moveItemBox.value = false;
+  droppedItem.value = undefined;
+  draggedItem.value = null;
+  droppedItemAmount.value = 0;
+}
+
+function dragItemFinished() {
+  handleSuccess();
+  droppedItem.value = undefined;
+  draggedItem.value = null;
+  droppedItemAmount.value = 0;
+}
 </script>
 
 <template>
   <div class="option-box">
     <div>
       <div class="path-text box">
-        <RouterLink :to="{ path: '/' }">/</RouterLink>
+        <RouterLink
+            :to="{ path: '/' }"
+            :class="{ 'droppedItem': droppedItem === null }"
+            @dragenter="dragItemEnter($event, null)"
+            @dragleave="dragItemLeave($event, null)"
+            @dragover.prevent
+            @drop="dragItemDrop"
+        >/
+        </RouterLink>
         <template v-for="(pathItem, idx) in folderPathSpliced" :key="pathItem.id">
-          <RouterLink :to="{ path: '/', query: { parent: pathItem.id } }">
+          <RouterLink
+              :to="{ path: '/', query: { parent: pathItem.id } }"
+              :class="{ 'droppedItem': droppedItem === pathItem.id }"
+              @dragenter="dragItemEnter($event, pathItem.id)"
+              @dragleave="dragItemLeave($event, pathItem.id)"
+              @dragover.prevent
+              @drop="dragItemDrop">
             <template v-if="(folderPath?.length ?? 0) > 6 && idx === 0">
               ...
             </template>
@@ -162,7 +249,11 @@ useHead({
               {{ pathItem.name }}
             </template>
           </RouterLink>
-          <RouterLink :to="{ path: '/', query: { parent: pathItem.id } }">/</RouterLink>
+          <RouterLink
+              :to="{ path: '/', query: { parent: pathItem.id } }"
+              @dragenter="dragItemEnter($event, pathItem.id); console.log(pathItem)"
+              @dragleave="dragItemLeave($event, pathItem.id)">/
+          </RouterLink>
         </template>
       </div>
       <div class="sorting-option">
@@ -213,15 +304,22 @@ useHead({
       <div :class="viewType === 'grid' ? 'items-grid' : 'items-list'">
         <MainItemBox
             v-for="folder in folders" :key="folder.id"
+            :class="{ 'droppedItem': droppedItem === folder.id }"
             @contextmenu.prevent.stop="openMenuBox($event, folder, 'folder')"
             @dblclick="enterFolder(folder.id)"
             :name="folder.name"
+            @dragenter="dragItemEnter($event, folder.id)"
+            @dragleave="dragItemLeave($event, folder.id)"
+            @dragstart="dragItemStart($event, folder, 'folder')"
+            @dragover.prevent
+            @drop="dragItemDrop($event)"
             isFolder
         />
         <MainItemBox
             v-for="file in files" :key="file.id"
             @contextmenu.prevent.stop="openMenuBox($event, file, 'file')"
             @dblclick="enterFile(file.name)"
+            @dragstart="dragItemStart($event, file, 'file')"
             :name="file.name"
             :author="file.owner_name"
         />
@@ -234,7 +332,7 @@ useHead({
       <Icon name="material-symbols:folder-open"/>
       <span>Otwórz folder</span>
     </button>
-    <button v-if="selectedType == 'folder'" @click="() => {menuRef?.close(); editFolderBox = true}">
+    <button v-if="selectedType == 'folder'" @click="() => {menuRef?.close(); editItemBox = true}">
       <Icon name="material-symbols:folder-managed"/>
       <span>Edytuj nazwę</span>
     </button>
@@ -242,9 +340,8 @@ useHead({
       <Icon name="material-symbols:folder-delete-rounded"/>
       <span>Usuń folder</span>
     </button>
-    <div v-if="selectedType == 'folder'"/>
 
-    <button v-if="selectedType == 'file'" @click="() => {menuRef?.close(); editFolderBox = true}">
+    <button v-if="selectedType == 'file'" @click="() => {menuRef?.close(); editItemBox = true}">
       <Icon name="material-symbols:edit-square-rounded"/>
       <span>Edytuj nazwę</span>
     </button>
@@ -252,7 +349,12 @@ useHead({
       <Icon name="material-symbols:scan-delete-rounded"/>
       <span>Usuń plik</span>
     </button>
-    <div v-if="selectedType == 'file'"/>
+    <button v-if="selectedType === 'file' || selectedType === 'folder'" @click="async () => {menuRef?.close(); await copyText(selectedItem?.id ?? null)}">
+      <Icon name="material-symbols:scan-info-rounded"/>
+      <span>Kopiuj ID</span>
+    </button>
+
+    <div v-if="selectedType === 'file' || selectedType === 'folder'"/>
 
     <button @click="() => {menuRef?.close(); addFileBox = true}">
       <Icon name="material-symbols:file-copy-rounded"/>
@@ -279,12 +381,20 @@ useHead({
       :name="selectedItem?.name"/>
 
   <BoxEdit
-      :show="editFolderBox"
-      @close="editFolderBox = false"
+      :show="editItemBox"
+      @close="editItemBox = false"
       @success="handleSuccess"
       :type="selectedType ?? undefined"
       :id="selectedItem?.id ?? ''"
       :name="selectedItem?.name ?? ''"/>
+
+  <BoxMove
+      :show="moveItemBox"
+      @close="dragItemCancel"
+      @success="dragItemFinished"
+      :type="draggedType ?? undefined"
+      :id="draggedItem"
+      :new-parent="droppedItem"/>
 
   <BoxFileUpload
       :show="addFileBox"
@@ -469,6 +579,10 @@ useHead({
       filter: brightness(80%);
     }
   }
+}
+
+.droppedItem {
+  border: 4px solid var(--accent-color) !important;
 }
 
 .items-grid {

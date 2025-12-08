@@ -1,6 +1,5 @@
 use crate::models::{ApiResponse, User};
-use crate::perms::ApiResult;
-use crate::{ACCESS_TOKEN_TIME, REFRESH_TOKEN_TIME};
+use crate::{ApiResult, ACCESS_TOKEN_TIME, REFRESH_TOKEN_TIME};
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use rocket::http::private::cookie::Expiration;

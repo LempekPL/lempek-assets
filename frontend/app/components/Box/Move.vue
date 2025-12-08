@@ -1,33 +1,28 @@
 <script setup lang="ts">
 const props = defineProps<{
   show: boolean
-  id: string
+  id?: string | null
   type?: 'folder' | 'file'
-  name: string
+  newParent: string | null | undefined
 }>()
-const emit = defineEmits(['close','success'])
+const emit = defineEmits(['close', 'success'])
 
 const loading = ref(false)
 const errorMessage = ref('')
-const newItemName = ref('')
-
-watch(() => props.show, (show) => {
-  if (show) newItemName.value = props.name;
-});
 
 const config = useRuntimeConfig()
 
 async function onSubmit() {
+  if (props.newParent === undefined) return;
   loading.value = true
   errorMessage.value = ''
   try {
-    await $fetch(`${config.public.apiBase}/${props.type}/rename`, {
+    await $fetch(`${config.public.apiBase}/${props.type}/move`, {
       method: 'PATCH',
       credentials: 'include',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ id: props.id, name: newItemName.value.trim() })
+      body: JSON.stringify({id: props.id, new_parent: props.newParent})
     })
-    newItemName.value = ''
     emit('success')
   } catch (err: any) {
     errorMessage.value = err?.data?.detail || 'Błąd'
@@ -35,10 +30,10 @@ async function onSubmit() {
     loading.value = false
   }
 }
+
 function onCancel() {
   if (loading.value) return
   errorMessage.value = ''
-  newItemName.value = ''
   emit('close')
 }
 </script>
@@ -51,9 +46,11 @@ function onCancel() {
       :onSubmit="onSubmit"
       :onCancel="onCancel"
   >
-    <PartInput id="name" name="Nazwa" v-model="newItemName" style="width: 100%;"/>
+    <p>Przenoszenie {{ type === 'folder' ? 'folderu' : 'pliku' }} do {{ props.newParent }}</p>
     <template #action>
-      <PartButton type="submit" :disabled="loading" style="background: var(--blue-button-color)">Edytuj nazwę</PartButton>
+      <PartButton type="submit" :disabled="loading" style="background: var(--blue-button-color)">Przenieś
+        {{ type === 'folder' ? 'folder' : 'plik' }}
+      </PartButton>
     </template>
   </BoxModal>
 </template>

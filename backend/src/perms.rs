@@ -1,11 +1,9 @@
 use crate::auth::UserData;
 use crate::models::ApiResponse;
 use rocket::http::Status;
-use rocket::serde::json::Json;
 use sqlx::PgConnection;
 use uuid::Uuid;
-
-pub type ApiResult<T = (Status, Json<ApiResponse>)> = Result<T, (Status, Json<ApiResponse>)>;
+use crate::ApiResult;
 
 pub enum PermissionKind {
     Read,

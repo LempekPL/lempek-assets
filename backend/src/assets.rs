@@ -1,14 +1,15 @@
 use crate::auth::{AuthUser, UserData};
 use crate::models::{ApiResponse, File, Folder};
-use crate::perms::{check_permission, ApiResult, PermissionKind};
+use crate::perms::{check_permission, PermissionKind};
+use crate::ApiResult;
 use crate::FILES_DIR;
+use chrono::{DateTime, Utc};
 use rocket::form::Form;
 use rocket::{fs::TempFile, http::Status, post, serde::json::Json, State};
 use serde::{Deserialize, Serialize};
 use sqlx::{Acquire, FromRow, PgConnection, PgPool};
 use std::path::Path;
 use std::{fs, path::PathBuf};
-use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 async fn get_folder_path(tx: &mut PgConnection, id: Option<Uuid>) -> ApiResult<String> {
@@ -101,6 +102,33 @@ fn get_ord(order: Option<String>) -> &'static str {
         Some("updated_desc") => "f.updated_at DESC",
         None | _ => "LOWER(f.name) ASC, f.name ASC",
     }
+}
+
+#[get("/folder?<id>")]
+pub async fn get_folder(id: Uuid, pool: &State<PgPool>, auth: AuthUser) -> ApiResult<Json<Folder>> {
+    let auth = auth?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    check_permission(&mut *tx, &auth, Some(id), PermissionKind::Read).await?;
+
+    let folder = sqlx::query_as!(
+        Folder,
+        "SELECT id, parent_id, name, owner_id, created_at, updated_at FROM folders WHERE id = $1",
+        id
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?
+    .ok_or_else(|| ApiResponse::fail(Status::NotFound, "folder not found", None))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok(Json(folder))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -247,7 +275,7 @@ pub struct EditFolderData {
     pub name: String,
 }
 
-#[patch("/folder", format = "json", data = "<data>")]
+#[patch("/folder/rename", format = "json", data = "<data>")]
 pub async fn edit_folder(
     data: Json<EditFolderData>,
     pool: &State<PgPool>,
@@ -705,7 +733,7 @@ pub struct EditFile {
     pub name: String,
 }
 
-#[patch("/file", format = "json", data = "<data>")]
+#[patch("/file/rename", format = "json", data = "<data>")]
 pub async fn edit_file(data: Json<EditFile>, pool: &State<PgPool>, auth: AuthUser) -> ApiResult {
     let auth = auth?;
     let mut tx = pool
@@ -713,10 +741,14 @@ pub async fn edit_file(data: Json<EditFile>, pool: &State<PgPool>, auth: AuthUse
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
 
-    let file = sqlx::query!("SELECT folder_id, name FROM files WHERE id = $1", data.id)
-        .fetch_one(&mut *tx)
+    let file = sqlx::query!("SELECT * FROM files WHERE id = $1", data.id)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    let Some(file) = file else {
+        return Err(ApiResponse::fail(Status::NotFound, "file not found", None));
+    };
 
     check_permission(&mut tx, &auth, file.folder_id, PermissionKind::Edit).await?;
     check_name(&data.name)?;
@@ -737,14 +769,6 @@ pub async fn edit_file(data: Json<EditFile>, pool: &State<PgPool>, auth: AuthUse
             ApiResponse::fail(Status::InternalServerError, "database error", Some(&e))
         }
     })?;
-
-    if result.rows_affected() == 0 {
-        return Err(ApiResponse::fail(
-            Status::NotFound,
-            "folder not found",
-            None,
-        ));
-    }
 
     let mut old_path = PathBuf::from(FILES_DIR.get().unwrap());
     old_path.push(&get_folder_path(&mut tx, file.folder_id).await?);
@@ -770,4 +794,147 @@ pub async fn edit_file(data: Json<EditFile>, pool: &State<PgPool>, auth: AuthUse
         Status::NoContent,
         ApiResponse::success_with("renamed folder"),
     ))
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MoveItem {
+    pub id: Uuid,
+    pub new_parent: Option<Uuid>,
+}
+
+#[patch("/folder/move", format = "json", data = "<data>")]
+pub async fn move_folder(data: Json<MoveItem>, pool: &State<PgPool>, auth: AuthUser) -> ApiResult {
+    move_item(Item::Folder(data), pool, auth).await
+}
+
+#[patch("/file/move", format = "json", data = "<data>")]
+pub async fn move_file(data: Json<MoveItem>, pool: &State<PgPool>, auth: AuthUser) -> ApiResult {
+    move_item(Item::File(data), pool, auth).await
+}
+
+#[derive(Clone)]
+enum Item {
+    File(Json<MoveItem>),
+    Folder(Json<MoveItem>),
+}
+
+async fn move_item(data: Item, pool: &State<PgPool>, auth: AuthUser) -> ApiResult {
+    let auth = auth?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    let (current_parent, item_name, new_parent) = match data.clone() {
+        Item::File(data) => {
+            let file = sqlx::query!("SELECT folder_id, name FROM files WHERE id = $1", data.id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| {
+                    ApiResponse::fail(Status::InternalServerError, "database error", Some(&e))
+                })?
+                .ok_or_else(|| ApiResponse::fail(Status::Forbidden, "file not found", None))?;
+
+            (file.folder_id, file.name, data.new_parent)
+        }
+
+        Item::Folder(data) => {
+            let folder = sqlx::query!("SELECT parent_id, name FROM folders WHERE id = $1", data.id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| {
+                    ApiResponse::fail(Status::InternalServerError, "database error", Some(&e))
+                })?
+                .ok_or_else(|| ApiResponse::fail(Status::Forbidden, "folder not found", None))?;
+
+            (folder.parent_id, folder.name, data.new_parent)
+        }
+    };
+
+    check_permission(&mut tx, &auth, current_parent, PermissionKind::Modify).await?;
+    check_permission(&mut tx, &auth, new_parent, PermissionKind::Edit).await?;
+
+    let old_folder_path = get_folder_path(&mut tx, current_parent).await?;
+    let new_folder_path = get_folder_path(&mut tx, new_parent).await?;
+
+    match data {
+        Item::File(data) => {
+            let result = sqlx::query!(
+                "UPDATE files SET folder_id = $1 WHERE id = $2",
+                data.new_parent,
+                data.id
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                if let sqlx::Error::Database(db_err) = &e
+                    && db_err.is_unique_violation()
+                {
+                    ApiResponse::fail(Status::Conflict, "file with this name already exists", None)
+                } else {
+                    ApiResponse::fail(Status::InternalServerError, "database error", Some(&e))
+                }
+            })?;
+
+            if result.rows_affected() == 0 {
+                return Err(ApiResponse::fail(Status::NotFound, "file not found", None));
+            }
+        }
+        Item::Folder(data) => {
+            let result = sqlx::query!(
+                "UPDATE folders SET parent_id = $1 WHERE id = $2",
+                data.new_parent,
+                data.id
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                if let sqlx::Error::Database(db_err) = &e
+                    && db_err.is_unique_violation()
+                {
+                    ApiResponse::fail(Status::Conflict, "folder with this name already exists", None)
+                } else {
+                    ApiResponse::fail(Status::InternalServerError, "database error", Some(&e))
+                }
+            })?;
+
+            if result.rows_affected() == 0 {
+                return Err(ApiResponse::fail(
+                    Status::NotFound,
+                    "folder not found",
+                    None,
+                ));
+            }
+        }
+    }
+
+    let mut old_path = PathBuf::from(FILES_DIR.get().unwrap());
+    old_path.push(old_folder_path);
+    old_path.push(&item_name);
+
+    let mut new_path = PathBuf::from(FILES_DIR.get().unwrap());
+    new_path.push(new_folder_path);
+    new_path.push(&item_name);
+
+    if let Err(e) = fs::create_dir_all(new_path.parent().unwrap()) {
+        return Err(ApiResponse::fail(
+            Status::InternalServerError,
+            "cannot create target dir",
+            Some(&e),
+        ));
+    }
+
+    fs::rename(&old_path, &new_path).map_err(|e| {
+        ApiResponse::fail(
+            Status::InternalServerError,
+            "filesystem move failed",
+            Some(&e),
+        )
+    })?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiResponse::fail(Status::InternalServerError, "database error", Some(&e)))?;
+
+    Ok((Status::NoContent, ApiResponse::success_with("moved item")))
 }
