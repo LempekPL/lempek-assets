@@ -1,31 +1,32 @@
 <script setup lang="ts">
+import type {TypedItem} from "~~/types/api";
+
 const props = defineProps<{
   show: boolean
-  id: string
-  type?: 'folder' | 'file'
-  name: string
+  item: TypedItem | null
 }>()
 const emit = defineEmits(['close','success'])
 
 const loading = ref(false)
 const errorMessage = ref('')
-const newItemName = ref('')
+const newItemName = ref<string | undefined>('')
 
 watch(() => props.show, (show) => {
-  if (show) newItemName.value = props.name;
+  if (show) newItemName.value = props.item?.item.name;
 });
 
 const config = useRuntimeConfig()
 
 async function onSubmit() {
+  if (!newItemName.value) return;
   loading.value = true
   errorMessage.value = ''
   try {
-    await $fetch(`${config.public.apiBase}/${props.type}/rename`, {
+    await $fetch(`${config.public.apiBase}/${props.item?.type}/rename`, {
       method: 'PATCH',
       credentials: 'include',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ id: props.id, name: newItemName.value.trim() })
+      body: JSON.stringify({ id: props.item?.item.id, name: newItemName.value.trim() })
     })
     newItemName.value = ''
     emit('success')

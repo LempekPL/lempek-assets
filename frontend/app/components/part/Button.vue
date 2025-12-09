@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { defineExpose, ref } from "vue";
-
-const button = ref<HTMLButtonElement | null>(null);
-defineExpose({ button });
+const buttonRef = ref<HTMLButtonElement | null>(null);
+function contains(target: Node): boolean {
+  return buttonRef.value?.contains(target) ?? false;
+}
+defineExpose({button: buttonRef, contains});
 </script>
 
 <template>
-  <button ref="button">
+  <button ref="buttonRef">
     <slot/>
   </button>
 </template>

@@ -1,31 +1,28 @@
 <!--suppress HtmlUnknownTarget -->
 <script setup lang="ts">
 import PartMiniMenu from "~/components/part/MiniMenu.vue";
-import type {Folder, File, UuidName} from "~~/types/api";
+import type {Folder, File, UuidName, TypedItem} from "~~/types/api";
 
-type FileData = File & {
-  owner_name: string;
-};
+const {copy, copying} = useClipboard();
 import {useRouter} from 'vue-router';
+import {useDropdown} from "~/composables/useDropdown";
 
 const router = useRouter();
 const route = useRoute();
 const parentId = computed(() => route.query.parent as string | null);
 const config = useRuntimeConfig();
+const {isFileDrag} = useDragEvents();
+
+const {
+  show: showOrderMenu,
+  toggle: orderMenuToggle,
+  buttonRef: buttonOrderRef,
+  dropdownRef: dropdownOrderRef
+} = useDropdown();
+
 const viewType = ref<'grid' | 'list'>('grid');
 type OrderTypes = 'name_asc' | 'name_desc' | 'created_asc' | 'created_desc' | 'updated_asc' | 'updated_desc';
 const orderChoice = ref<OrderTypes>('name_asc');
-const showOrderMenu = ref<boolean>(false);
-const orderMenuRef = ref<HTMLElement | null>(null);
-const openOrderMenuRef = ref<HTMLElement | null>(null);
-const {isFileDrag} = useDragEvents();
-
-const draggedItem = ref<string | null>(null);
-const draggedItemParent = ref<string | null>(null);
-const draggedType = ref<'file' | 'folder'>('file');
-const droppedItem = ref<string | null | undefined>(undefined);
-const droppedItemAmount = ref(0);
-
 const VALID_ORDERS: Record<OrderTypes, string> = {
   'name_asc': "Nazwa A-Z",
   'name_desc': "Nazwa Z-A",
@@ -55,7 +52,7 @@ const {
   data: files,
   pending: filesPending,
   refresh: refreshFiles
-} = await useFetch<FileData[]>(() => config.public.apiBase + `/files?parent=${parentId.value ?? ''}&order=${orderChoice.value ?? ''}`, FETCH_OPTIONS as {});
+} = await useFetch<File[]>(() => config.public.apiBase + `/files?parent=${parentId.value ?? ''}&order=${orderChoice.value ?? ''}`, FETCH_OPTIONS as {});
 
 const {
   data: folderPath,
@@ -63,25 +60,24 @@ const {
 } = await useFetch<UuidName[]>(() => config.public.apiBase + "/folder/path?id=" + (parentId.value ?? ''), FETCH_OPTIONS as {});
 
 const pending = computed(() => foldersPending.value || filesPending.value || pathPending.value);
-const menuRef = ref<InstanceType<typeof PartMiniMenu> | null>(null);
-const selectedItem = ref<Folder | File | null>(null);
-const selectedType = ref<'folder' | 'file' | null>(null);
 
+const menuRef = ref<InstanceType<typeof PartMiniMenu> | null>(null);
+const selectedItem = ref<TypedItem | null>(null);
 function openMenuBox(event: MouseEvent, item: Folder | File | null = null, type: 'file' | 'folder' | null = null) {
   event.preventDefault();
   menuRef.value?.open(event.clientX, event.clientY);
-  selectedItem.value = item;
-  selectedType.value = type;
+  if (type === 'folder') {
+    item = item as Folder;
+    selectedItem.value = {type: 'folder', item};
+  } else {
+    item = item as File;
+    selectedItem.value = {type: 'file', item};
+  }
 }
-
 function handleClickOutside(event: MouseEvent) {
   if (menuRef.value?.isOpen() && !menuRef.value.contains(event.target as Node)) {
     menuRef.value.close();
     selectedItem.value = null;
-    selectedType.value = null;
-  }
-  if (!openOrderMenuRef.value?.contains(event.target as Node) && !orderMenuRef.value?.contains(event.target as Node)) {
-    showOrderMenu.value = false;
   }
 }
 
@@ -101,11 +97,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('mousedown', handleClickOutside);
 });
 
-const addFolderBox = ref(false);
-const deleteFolderBox = ref(false);
-const editItemBox = ref(false);
-const moveItemBox = ref(false);
-const addFileBox = ref(false);
+type ModalType = 'addFolder' | 'uploadFile' | 'deleteItem' | 'editItem' | 'moveItem';
+const modalBox = ref<ModalType | null>(null);
 
 function enterFolder(id: string | null) {
   router.push({path: '/', query: {parent: id}});
@@ -122,11 +115,7 @@ async function enterFile(fileName: string) {
 }
 
 function handleSuccess() {
-  addFolderBox.value = false;
-  deleteFolderBox.value = false;
-  editItemBox.value = false;
-  moveItemBox.value = false;
-  addFileBox.value = false;
+  modalBox.value = null;
   refreshFolders();
   refreshFiles();
 }
@@ -139,10 +128,6 @@ const folderPathSpliced = computed(() => {
   }
 })
 
-const head_title = computed(() => {
-  return "AS - " + (folderPathSpliced.value[0]?.name ?? "/");
-})
-
 watch(viewType, (val) => {
   localStorage.setItem(DISPLAY_STORAGE, val);
 });
@@ -150,30 +135,17 @@ watch(orderChoice, (val) => {
   if (val)
     localStorage.setItem(ORDER_STORAGE, val);
 });
+useHead(() => ({
+  title: "AS - " + (folderPathSpliced.value.at(-1)?.name ?? "/")
+}));
 
-useHead({
-  title: head_title
-})
-
-async function copyText(text: string | null) {
-  if (!text) return;
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(text);
-  } else {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textarea);
-  }
-}
-
+export type DraggedItem = TypedItem & { parentId: string | null };
+const draggedItem = ref<DraggedItem | null>(null);
+const droppedItem = ref<string | null | undefined>(undefined);
+const droppedItemAmount = ref(0);
 
 function dragItemEnter(e: DragEvent, folderId: string | null | undefined) {
-  if (draggedItem.value && draggedItem.value !== folderId) {
+  if (draggedItem.value && draggedItem.value.item.id !== folderId) {
     droppedItemAmount.value++;
     if (!isFileDrag(e)) {
       droppedItem.value = folderId
@@ -182,7 +154,7 @@ function dragItemEnter(e: DragEvent, folderId: string | null | undefined) {
 }
 
 function dragItemLeave(e: DragEvent, folderId: string | null | undefined) {
-  if (draggedItem.value && draggedItem.value !== folderId) {
+  if (draggedItem.value && draggedItem.value.item.id !== folderId) {
     droppedItemAmount.value--;
     if (!isFileDrag(e) && droppedItemAmount.value === 0) {
       droppedItem.value = undefined
@@ -191,23 +163,27 @@ function dragItemLeave(e: DragEvent, folderId: string | null | undefined) {
 }
 
 function dragItemStart(_e: DragEvent, item: Folder | File, type: 'folder' | 'file') {
-  draggedItem.value = item.id;
-  draggedType.value = type;
-  draggedItemParent.value = type === 'folder' ? item.parent_id : item.folder_id;
+  if (type === 'folder') {
+    item = item as Folder;
+    draggedItem.value = {type: 'folder', item, parentId: item.parent_id};
+  } else {
+    item = item as File;
+    draggedItem.value = {type: 'file', item, parentId: item.folder_id};
+  }
 }
 
 function dragItemDrop(_e: DragEvent) {
-  console.log(`dragging (${draggedType.value}) ${draggedItem.value} from ${draggedItemParent.value} to (folder) ${droppedItem.value}`);
-  if (droppedItem.value !== undefined && draggedItemParent.value !== droppedItem.value) {
-    moveItemBox.value = true;
+  console.log(`dragging (${draggedItem.value?.type}) ${draggedItem.value?.item.id} from ${draggedItem.value?.parentId} to (folder) ${droppedItem.value}`);
+  if (droppedItem.value !== undefined && draggedItem.value?.parentId !== droppedItem.value) {
+    modalBox.value = 'moveItem';
   }
-  if (draggedItemParent.value === droppedItem.value) {
+  if (draggedItem.value?.parentId === droppedItem.value) {
     dragItemCancel();
   }
 }
 
 function dragItemCancel() {
-  moveItemBox.value = false;
+  modalBox.value = null;
   droppedItem.value = undefined;
   draggedItem.value = null;
   droppedItemAmount.value = 0;
@@ -257,11 +233,11 @@ function dragItemFinished() {
         </template>
       </div>
       <div class="sorting-option">
-        <button ref="openOrderMenuRef" @click="showOrderMenu = !showOrderMenu">
+        <button ref="buttonOrderRef" @click="orderMenuToggle">
           <Icon class="order-icon" :class="{'rotate': showOrderMenu}" name="material-symbols:arrow-forward"/>
           <span>Sortuj po</span></button>
         <transition name="order-option" mode="out-in">
-          <div ref="orderMenuRef" v-show="showOrderMenu" class="sorting-options">
+          <div ref="dropdownOrderRef" v-show="showOrderMenu" class="sorting-options">
             <MainOrderButton
                 v-for="orderButton in Object.keys(VALID_ORDERS) as OrderTypes[]"
                 :key="orderButton"
@@ -328,77 +304,74 @@ function dragItemFinished() {
   </transition>
 
   <PartMiniMenu ref="menuRef" class="menu-part">
-    <button v-if="selectedType == 'folder'" @click="() => {menuRef?.close(); enterFolder(selectedItem?.id as string)}">
+    <button v-if="selectedItem?.type === 'folder'"
+            @click="() => {menuRef?.close(); enterFolder(selectedItem?.item?.id as string)}">
       <Icon name="material-symbols:folder-open"/>
       <span>Otwórz folder</span>
     </button>
-    <button v-if="selectedType == 'folder'" @click="() => {menuRef?.close(); editItemBox = true}">
+    <button v-if="selectedItem?.type === 'folder'" @click="() => {menuRef?.close(); modalBox = 'editItem';}">
       <Icon name="material-symbols:folder-managed"/>
       <span>Edytuj nazwę</span>
     </button>
-    <button v-if="selectedType == 'folder'" @click="() => {menuRef?.close(); deleteFolderBox = true}">
+    <button v-if="selectedItem?.type === 'folder'" @click="() => {menuRef?.close(); modalBox = 'deleteItem';}">
       <Icon name="material-symbols:folder-delete-rounded"/>
       <span>Usuń folder</span>
     </button>
 
-    <button v-if="selectedType == 'file'" @click="() => {menuRef?.close(); editItemBox = true}">
+    <button v-if="selectedItem?.type === 'file'" @click="() => {menuRef?.close(); modalBox = 'editItem';}">
       <Icon name="material-symbols:edit-square-rounded"/>
       <span>Edytuj nazwę</span>
     </button>
-    <button v-if="selectedType == 'file'" @click="() => {menuRef?.close(); deleteFolderBox = true}">
+    <button v-if="selectedItem?.type === 'file'" @click="() => {menuRef?.close(); modalBox = 'deleteItem';}">
       <Icon name="material-symbols:scan-delete-rounded"/>
       <span>Usuń plik</span>
     </button>
-    <button v-if="selectedType === 'file' || selectedType === 'folder'" @click="async () => {menuRef?.close(); await copyText(selectedItem?.id ?? null)}">
+    <button :disabled="copying" v-if="selectedItem?.type === 'file' || selectedItem?.type === 'folder'"
+            @click="async () => {menuRef?.close(); await copy(selectedItem?.item?.id ?? null)}">
       <Icon name="material-symbols:scan-info-rounded"/>
       <span>Kopiuj ID</span>
     </button>
 
-    <div v-if="selectedType === 'file' || selectedType === 'folder'"/>
+    <div v-if="selectedItem?.type === 'file' || selectedItem?.type === 'folder'"/>
 
-    <button @click="() => {menuRef?.close(); addFileBox = true}">
+    <button @click="() => {menuRef?.close(); modalBox = 'uploadFile';}">
       <Icon name="material-symbols:file-copy-rounded"/>
       <span>Prześlij plik</span>
     </button>
-    <button @click="() => {menuRef?.close(); addFolderBox = true}">
+    <button @click="() => {menuRef?.close();  modalBox = 'addFolder';}">
       <Icon name="material-symbols:create-new-folder-rounded"/>
       <span>Nowy folder</span>
     </button>
   </PartMiniMenu>
 
   <BoxFolderAdd
-      :show="addFolderBox"
-      @close="addFolderBox = false"
+      :show="modalBox === 'addFolder'"
+      @close="modalBox = null"
       @success="handleSuccess"
       :parent-id="parentId || undefined"/>
 
   <BoxDelete
-      :show="deleteFolderBox"
-      @close="deleteFolderBox = false"
+      :show="modalBox === 'deleteItem'"
+      @close="modalBox = null"
       @success="handleSuccess"
-      :type="selectedType ?? undefined"
-      :id="selectedItem?.id ?? ''"
-      :name="selectedItem?.name"/>
+      :item="selectedItem"/>
 
   <BoxEdit
-      :show="editItemBox"
-      @close="editItemBox = false"
+      :show="modalBox === 'editItem'"
+      @close="modalBox = null"
       @success="handleSuccess"
-      :type="selectedType ?? undefined"
-      :id="selectedItem?.id ?? ''"
-      :name="selectedItem?.name ?? ''"/>
+      :item="selectedItem"/>
 
   <BoxMove
-      :show="moveItemBox"
+      :show="modalBox === 'moveItem'"
       @close="dragItemCancel"
       @success="dragItemFinished"
-      :type="draggedType ?? undefined"
-      :id="draggedItem"
+      :dragged="draggedItem"
       :new-parent="droppedItem"/>
 
   <BoxFileUpload
-      :show="addFileBox"
-      @close="addFileBox = false"
+      :show="modalBox === 'uploadFile'"
+      @close="modalBox = null"
       @success="handleSuccess"
       :parent-id="parentId || undefined"/>
 </template>

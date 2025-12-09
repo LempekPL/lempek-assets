@@ -1,30 +1,23 @@
 <script setup lang="ts">
 import {useAuthStore} from "~/stores/auth.js";
 import type {PartButton} from "#components";
+import {useDropdown} from "~/composables/useDropdown";
 
 const auth = useAuthStore()
 
 const logout = async () => {
-  profileMenu.value = false;
+  closeProfile();
   await auth.logout();
   navigateTo("/login");
 }
 
-const profileMenu = ref(false);
-const buttonOpenRef = ref<InstanceType<typeof PartButton> | null>(null);
-
-function handleClickOutside(event: MouseEvent) {
-  if (!buttonOpenRef.value?.button?.contains(event.target as Node)) {
-    profileMenu.value = false;
-  }
-}
-
-onMounted(() => {
-  window.addEventListener('mousedown', handleClickOutside);
-});
-onBeforeUnmount(() => {
-  window.removeEventListener('mousedown', handleClickOutside);
-});
+const {
+  show: showProfile,
+  dropdownRef: dropdownProfile,
+  buttonRef: buttonProfile,
+  toggle: toggleProfile,
+  close: closeProfile,
+} = useDropdown(true);
 </script>
 
 <template>
@@ -39,10 +32,15 @@ onBeforeUnmount(() => {
         <nuxt-link href="/changelog" tabindex="-1" class="z-button">
           <PartButton>Changelog</PartButton>
         </nuxt-link>
-        <PartButton v-if="auth.loading" class="fake-button z-button" disabled="disabled"><div/></PartButton>
+        <PartButton v-if="auth.loading" class="fake-button z-button" disabled="disabled">
+          <div/>
+        </PartButton>
         <template v-else>
           <template v-if="auth.isAuthenticated">
             <PartButton @click="profileMenu = !profileMenu" ref="buttonOpenRef" class="z-button">{{ auth.user.username }}</PartButton>
+            <PartButton ref="buttonProfile" @click="toggleProfile" class="z-button">
+              {{ auth.user?.username }}
+            </PartButton>
           </template>
           <template v-else>
             <nuxt-link href="/login" tabindex="-1">
@@ -53,7 +51,7 @@ onBeforeUnmount(() => {
       </div>
 
       <transition name="profile-menu" mode="out-in">
-        <div v-show="profileMenu" class="profile-menu">
+        <div v-show="showProfile" ref="dropdownProfile" class="profile-menu">
           <nuxt-link href="/profile">Profil</nuxt-link>
           <button @click="logout" style="background: var(--red-button-color)">Wyloguj się</button>
         </div>

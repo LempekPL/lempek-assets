@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const props = defineProps<{
   onSuccess?: () => void;
-  current: string | null;
+  current: string | null | undefined;
 }>();
 type FileTransfer = {
   name: string | null
@@ -108,10 +108,10 @@ async function onSubmit() {
 
 <template>
   <div
-      @dragover="(e) => e.preventDefault()"
       @dragleave="(e) => {if (isFileDrag(e)) dragAmount--}"
       @dragenter="(e) => {if (isFileDrag(e)) dragAmount++}"
       @drop="onDrop"
+      @dragover.prevent
       :class="{ 'drag-over': isDragOver }"
       class="drop-area"
   >

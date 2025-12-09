@@ -11,11 +11,22 @@ export type File = {
     id: string;
     folder_id: string | null;
     owner_id: string;
+    owner_name: string;
     name: string;
     size: number;
     created_at: string;
     updated_at: string;
 };
+
+export type TypedFolder = {
+    type: 'folder';
+    item: Folder;
+};
+export type TypedFile = {
+    type: 'file';
+    item: File;
+};
+export type TypedItem = TypedFolder | TypedFile;
 
 export type ApiResponse = {
     success: boolean;

@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import type {DraggedItem} from "~/pages/index.vue";
+
 const props = defineProps<{
   show: boolean
-  id?: string | null
-  type?: 'folder' | 'file'
+  dragged?: DraggedItem | null
   newParent: string | null | undefined
 }>()
 const emit = defineEmits(['close', 'success'])
@@ -21,7 +22,7 @@ async function onSubmit() {
       method: 'PATCH',
       credentials: 'include',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: props.id, new_parent: props.newParent})
+      body: JSON.stringify({id: props.dragged?.item.id, new_parent: props.newParent})
     })
     emit('success')
   } catch (err: any) {
@@ -46,10 +47,10 @@ function onCancel() {
       :onSubmit="onSubmit"
       :onCancel="onCancel"
   >
-    <p>Przenoszenie {{ type === 'folder' ? 'folderu' : 'pliku' }} do {{ props.newParent }}</p>
+    <p>Przenoszenie {{ dragged?.type === 'folder' ? 'folderu' : 'pliku' }} do {{ props.newParent }}</p>
     <template #action>
       <PartButton type="submit" :disabled="loading" style="background: var(--blue-button-color)">Przenieś
-        {{ type === 'folder' ? 'folder' : 'plik' }}
+        {{ dragged?.type === 'folder' ? 'folder' : 'plik' }}
       </PartButton>
     </template>
   </BoxModal>

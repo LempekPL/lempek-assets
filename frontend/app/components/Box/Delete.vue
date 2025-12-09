@@ -1,16 +1,16 @@
 <script setup lang="ts">
+import type {TypedItem} from "~~/types/api";
+
 const props = defineProps<{
   show: boolean
-  type?: 'folder' | 'file'
-  id: string
-  name?: string
+  item: TypedItem | null
 }>()
 const emit = defineEmits(['close', 'success'])
 const loading = ref(false)
 const errorMessage = ref('')
 const config = useRuntimeConfig()
 const properType = computed(() => {
-  if (props.type === 'file') {
+  if (props.item?.type === 'file') {
     return 'plik';
   } else {
     return 'folder';
@@ -21,11 +21,11 @@ async function onSubmit() {
   loading.value = true
   errorMessage.value = ''
   try {
-    await $fetch(config.public.apiBase + '/' + props.type, {
+    await $fetch(config.public.apiBase + '/' + props.item?.type, {
       method: 'DELETE',
       credentials: 'include',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({id: props.id})
+      body: JSON.stringify({id: props.item?.item.id})
     })
     emit('success')
   } catch (err: any) {
@@ -51,7 +51,7 @@ function onCancel() {
       :onCancel="onCancel"
   >
     <p>Czy jesteś pewny że chcesz usunąć ten {{ properType }}?</p>
-    <p class="item-name">{{ name }}</p>
+    <p class="item-name">{{ item?.item?.name ?? '' }}</p>
     <template #action>
       <PartButton type="submit" :disabled="loading" style="background: var(--red-button-color)">Usuń {{ properType }}
       </PartButton>

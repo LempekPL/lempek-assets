@@ -4,7 +4,9 @@ import HeaderBox from "~/components/HeaderBox.vue";
 
 let changes = {
   "Version 2.2": [
-    "fixed screen flickering when moving files over the items"
+    "added ability to move files and folders",
+    "added ability to drag and drop files and folders to move them",
+    "fixed screen flickering when moving files over the items",
   ],
   "Version 2.1": [
     "added loading skeletons",
@@ -34,6 +36,9 @@ let changes = {
   ]
 }
 
+useHead({
+  title: "AS Changelog"
+})
 </script>
 
 <template>
